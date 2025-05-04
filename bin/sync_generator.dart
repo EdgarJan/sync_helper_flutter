@@ -77,7 +77,7 @@ void main(List<String> args) async {
     buffer.writeln("import 'dart:typed_data';");
     buffer.writeln("import 'dart:convert';");
     buffer.writeln(
-        "import 'sync_abstract.dart';"); // Import abstract classes here too
+        "import 'package:sync_helper_flutter/sync_abstract.dart';");
     buffer.writeln();
 
     buffer.writeln('class SyncConstants extends AbstractSyncConstants {');
