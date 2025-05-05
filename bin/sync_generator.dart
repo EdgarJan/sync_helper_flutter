@@ -248,10 +248,9 @@ void main(List<String> args) async {
               col is Map<String, dynamic> ? col['name'] as String? : null)
           .where((name) =>
               name != null && name.isNotEmpty && name != 'is_unsynced')
-          .map((name) => "'$name'")
           .toList();
 
-      buffer.writeln("    '$tableName': [${columnNames.join(', ')}],");
+      buffer.writeln("    '$tableName': '${columnNames.join(', ')}',");
     }
     buffer.writeln('  };');
 

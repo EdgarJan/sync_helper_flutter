@@ -14,7 +14,6 @@ import 'package:sync_helper_flutter/sync_abstract.dart';
 import 'package:uuid/uuid.dart';
 
 class BackendWrapper extends InheritedWidget {
-  // final String serverUrl = '34.254.207.241';
   final ValueNotifier<bool> inited = ValueNotifier<bool>(false);
   final ValueNotifier<SqliteDatabase?> _db = ValueNotifier<SqliteDatabase?>(
     null,
