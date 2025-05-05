@@ -56,9 +56,13 @@ class BackendWrapper extends InheritedWidget {
   Stream<List> watch({
     required String sql,
     required List<String> tables,
-    String where = ' where is_deleted != 1 OR is_deleted IS NULL',
+    String where = '',
   }) {
-    return _db.value!.watch(sql + where, triggerOnTables: tables);
+    String defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
+    return _db.value!.watch(
+      sql + defaultWhere + where,
+      triggerOnTables: tables,
+    );
   }
 
   Future<SqliteDatabase> openDatabase() async {
