@@ -28,17 +28,19 @@ void main(List<String> args) async {
     }
 
     final List<dynamic> allModels = jsonDecode(response.body);
-    final List<dynamic> appModels = allModels
-        .where((m) => m['app_id'] == targetAppId && m['version'] is int)
-        .toList();
+    final List<dynamic> appModels =
+        allModels
+            .where((m) => m['app_id'] == targetAppId && m['version'] is int)
+            .toList();
 
     if (appModels.isEmpty) {
       print('Error: No valid models found for app_id "$targetAppId".');
       exit(1);
     }
 
-    appModels
-        .sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
+    appModels.sort(
+      (a, b) => (a['version'] as int).compareTo(b['version'] as int),
+    );
 
     final latestModel = appModels.last;
     final int latestVersion = latestModel['version'];
@@ -50,14 +52,16 @@ void main(List<String> args) async {
 
     if (latestClientCreateDdls.isEmpty) {
       print(
-          'Error: client_create is null or empty for the latest version ($latestVersion) of app_id "$targetAppId".');
+        'Error: client_create is null or empty for the latest version ($latestVersion) of app_id "$targetAppId".',
+      );
       exit(1);
     }
 
     final modelDefaults = latestModel['model_with_client_defaults'];
     if (modelDefaults == null || modelDefaults is! Map<String, dynamic>) {
       print(
-          'Error: "model_with_client_defaults" is missing or invalid in the latest version ($latestVersion) for app_id "$targetAppId".');
+        'Error: "model_with_client_defaults" is missing or invalid in the latest version ($latestVersion) for app_id "$targetAppId".',
+      );
       exit(1);
     }
 
@@ -76,8 +80,7 @@ void main(List<String> args) async {
     buffer.writeln("import 'package:sqlite_async/sqlite_async.dart';");
     buffer.writeln("import 'dart:typed_data';");
     buffer.writeln("import 'dart:convert';");
-    buffer.writeln(
-        "import 'package:sync_helper_flutter/sync_abstract.dart';");
+    buffer.writeln("import 'package:sync_helper_flutter/sync_abstract.dart';");
     buffer.writeln();
 
     buffer.writeln('class SyncConstants extends AbstractSyncConstants {');
@@ -89,7 +92,8 @@ void main(List<String> args) async {
     buffer.writeln();
 
     buffer.writeln(
-        'class PregeneratedMigrations extends AbstractPregeneratedMigrations {');
+      'class PregeneratedMigrations extends AbstractPregeneratedMigrations {',
+    );
     buffer.writeln('  @override');
     buffer.writeln('  final SqliteMigrations migrations = SqliteMigrations()');
 
@@ -104,7 +108,12 @@ void main(List<String> args) async {
       buffer.writeln('      $currentVersion,');
       buffer.writeln('      (tx) async {');
       generateSqlExecutionCode(
-          clientMigrationDdls, buffer, 8, "client_migration", currentVersion);
+        clientMigrationDdls,
+        buffer,
+        8,
+        "client_migration",
+        currentVersion,
+      );
       buffer.writeln('      },');
       buffer.writeln('    ))');
     }
@@ -113,7 +122,12 @@ void main(List<String> args) async {
     buffer.writeln('      $latestVersion,');
     buffer.writeln('      (tx) async {');
     generateSqlExecutionCode(
-        latestClientCreateDdls, buffer, 8, "client_create", latestVersion);
+      latestClientCreateDdls,
+      buffer,
+      8,
+      "client_create",
+      latestVersion,
+    );
     buffer.writeln('      },');
     buffer.writeln('    );');
     buffer.writeln('}');
@@ -125,9 +139,10 @@ void main(List<String> args) async {
     for (final tableData in allTables) {
       if (tableData is! Map<String, dynamic>) continue;
       final tableName = tableData['name'] as String?;
-      final columns = tableData['columns'] is List
-          ? List<dynamic>.from(tableData['columns'])
-          : [];
+      final columns =
+          tableData['columns'] is List
+              ? List<dynamic>.from(tableData['columns'])
+              : [];
 
       if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
 
@@ -146,7 +161,8 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
 
         final dartType = mapSqlTypeToDart(columnType);
         final fieldName = columnName;
@@ -162,8 +178,9 @@ void main(List<String> args) async {
       buffer.writeln('  });');
 
       buffer.writeln();
-      buffer
-          .writeln('  factory $className.fromMap(Map<String, dynamic> map) {');
+      buffer.writeln(
+        '  factory $className.fromMap(Map<String, dynamic> map) {',
+      );
       buffer.writeln('    return $className(');
       for (final columnData in columns) {
         if (columnData is! Map<String, dynamic>) continue;
@@ -173,24 +190,28 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
 
         final dartType = mapSqlTypeToDart(columnType);
         final fieldName = columnName;
         buffer.write("      $fieldName: map['$fieldName']");
         if (dartType == 'DateTime' && columnName.isNotEmpty) {
           buffer.write(
-              " != null ? DateTime.tryParse(map['$fieldName'].toString()) : null");
+            " != null ? DateTime.tryParse(map['$fieldName'].toString()) : null",
+          );
         } else if (dartType == 'bool' && columnName.isNotEmpty) {
           buffer.write(" == 1 || map['$fieldName'] == true");
         } else if (dartType == 'Uint8List' && columnName.isNotEmpty) {
           buffer.write(
-              " is List<int> ? Uint8List.fromList(map['$fieldName']) : (map['$fieldName'] is String ? base64Decode(map['$fieldName']) : null)");
+            " is List<int> ? Uint8List.fromList(map['$fieldName']) : (map['$fieldName'] is String ? base64Decode(map['$fieldName']) : null)",
+          );
         } else if (dartType != 'String' &&
             dartType != 'Object' &&
             columnName.isNotEmpty) {
           buffer.write(
-              " != null ? ($dartType.tryParse(map['$fieldName'].toString()) ?? (map['$fieldName'] is num ? map['$fieldName'].to$dartType() : null)) : null");
+            " != null ? ($dartType.tryParse(map['$fieldName'].toString()) ?? (map['$fieldName'] is num ? map['$fieldName'].to$dartType() : null)) : null",
+          );
         } else if (dartType == 'String' && columnName.isNotEmpty) {
           buffer.write("?.toString()");
         }
@@ -210,7 +231,8 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
         final fieldName = columnName;
         final dartType = mapSqlTypeToDart(columnType);
 
@@ -233,46 +255,30 @@ void main(List<String> args) async {
 
     buffer.writeln('class MetaEntity extends AbstractMetaEntity {');
     buffer.writeln('  @override');
-    buffer.writeln('  final Map<String, List<String>> syncableColumns = {');
+    buffer.writeln('  final Map<String, String> syncableColumns = {');
     for (final tableData in syncableTables) {
       if (tableData is! Map<String, dynamic>) continue;
       final tableName = tableData['name'] as String?;
-      final columns = tableData['columns'] is List
-          ? List<dynamic>.from(tableData['columns'])
-          : [];
+      final columns =
+          tableData['columns'] is List
+              ? List<dynamic>.from(tableData['columns'])
+              : [];
 
       if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
 
-      final columnNames = columns
-          .map((col) =>
-              col is Map<String, dynamic> ? col['name'] as String? : null)
-          .where((name) =>
-              name != null && name.isNotEmpty && name != 'is_unsynced')
-          .toList();
+      final columnNames =
+          columns
+              .map(
+                (col) =>
+                    col is Map<String, dynamic> ? col['name'] as String? : null,
+              )
+              .where(
+                (name) =>
+                    name != null && name.isNotEmpty && name != 'is_unsynced',
+              )
+              .toList();
 
       buffer.writeln("    '$tableName': '${columnNames.join(', ')}',");
-    }
-    buffer.writeln('  };');
-
-    buffer.writeln('  @override');
-    buffer.writeln('  final Map<String, List<String>> allColumns = {');
-    for (final tableData in allTables) {
-      if (tableData is! Map<String, dynamic>) continue;
-      final tableName = tableData['name'] as String?;
-      final columns = tableData['columns'] is List
-          ? List<dynamic>.from(tableData['columns'])
-          : [];
-
-      if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
-
-      final columnNames = columns
-          .map((col) =>
-              col is Map<String, dynamic> ? col['name'] as String? : null)
-          .where((name) => name != null && name.isNotEmpty)
-          .map((name) => "'$name'")
-          .toList();
-
-      buffer.writeln("    '$tableName': [${columnNames.join(', ')}],");
     }
     buffer.writeln('  };');
 
@@ -290,8 +296,13 @@ void main(List<String> args) async {
   }
 }
 
-void generateSqlExecutionCode(List<dynamic> ddlObjects, StringBuffer buffer,
-    int indentLevel, String context, int version) {
+void generateSqlExecutionCode(
+  List<dynamic> ddlObjects,
+  StringBuffer buffer,
+  int indentLevel,
+  String context,
+  int version,
+) {
   final indent = ' ' * indentLevel;
   if (ddlObjects.isEmpty) {
     return;
@@ -300,7 +311,8 @@ void generateSqlExecutionCode(List<dynamic> ddlObjects, StringBuffer buffer,
   for (final ddlObject in ddlObjects) {
     if (ddlObject is! Map<String, dynamic>) {
       print(
-          'Warning: Invalid DDL object format in $context for version $version: $ddlObject');
+        'Warning: Invalid DDL object format in $context for version $version: $ddlObject',
+      );
       continue;
     }
 
@@ -312,7 +324,8 @@ void generateSqlExecutionCode(List<dynamic> ddlObjects, StringBuffer buffer,
         continue;
       } else {
         print(
-            'Warning: Missing or empty SQL for DDL object in $context for version $version: $ddlObject');
+          'Warning: Missing or empty SQL for DDL object in $context for version $version: $ddlObject',
+        );
         continue;
       }
     }
@@ -326,15 +339,18 @@ void generateSqlExecutionCode(List<dynamic> ddlObjects, StringBuffer buffer,
       if (params is List && params.isNotEmpty) {
         final paramsLiteral = jsonEncode(params);
         buffer.writeln(
-            "${indent}await tx.executeBatch(r'''$escapedSql''', $paramsLiteral);");
+          "${indent}await tx.executeBatch(r'''$escapedSql''', $paramsLiteral);",
+        );
       } else {
         print(
-            'Warning: Missing, invalid, or empty "params" for batch operation in $context for version $version: $ddlObject. Falling back to tx.execute.');
+          'Warning: Missing, invalid, or empty "params" for batch operation in $context for version $version: $ddlObject. Falling back to tx.execute.',
+        );
         buffer.writeln("${indent}await tx.execute(r'''$escapedSql''');");
       }
     } else {
       print(
-          'Warning: Unknown DDL type "$type" in $context for version $version: $ddlObject. Defaulting to tx.execute.');
+        'Warning: Unknown DDL type "$type" in $context for version $version: $ddlObject. Defaulting to tx.execute.',
+      );
       buffer.writeln("${indent}await tx.execute(r'''$escapedSql''');");
     }
   }
@@ -346,10 +362,13 @@ String escapeSqlString(String sql) {
 
 String capitalize(String s) {
   if (s.isEmpty) return s;
-  return s.split('_').map((part) {
-    if (part.isEmpty) return '';
-    return part[0].toUpperCase() + part.substring(1).toLowerCase();
-  }).join('');
+  return s
+      .split('_')
+      .map((part) {
+        if (part.isEmpty) return '';
+        return part[0].toUpperCase() + part.substring(1).toLowerCase();
+      })
+      .join('');
 }
 
 String mapSqlTypeToDart(String sqlType) {
