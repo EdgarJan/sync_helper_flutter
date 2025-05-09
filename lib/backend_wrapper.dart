@@ -69,7 +69,6 @@ class BackendWrapper extends InheritedWidget {
 
   Future<ResultSet> getAll({
     required String sql,
-    required List<String> tables,
     String where = '',
     String order = '',
   }) {
