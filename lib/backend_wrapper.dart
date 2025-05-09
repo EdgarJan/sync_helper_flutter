@@ -67,6 +67,19 @@ class BackendWrapper extends InheritedWidget {
     );
   }
 
+  Future<ResultSet> getAll({
+    required String sql,
+    required List<String> tables,
+    String where = '',
+    String order = '',
+  }) {
+    String defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
+    String _order = order.isNotEmpty ? ' ORDER BY $order' : '';
+    return _db.value!.getAll(
+      sql + defaultWhere + where + _order,
+    );
+  }
+
   Future<SqliteDatabase> openDatabase() async {
     final dbPath = await getDatabasePath('helper_sync.db');
     final db = SqliteDatabase(
