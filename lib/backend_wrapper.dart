@@ -57,10 +57,12 @@ class BackendWrapper extends InheritedWidget {
     required String sql,
     required List<String> tables,
     String where = '',
+    String order = '',
   }) {
     String defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
+    String _order = order.isNotEmpty ? ' ORDER BY $order' : '';
     return _db.value!.watch(
-      sql + defaultWhere + where,
+      sql + defaultWhere + where + _order,
       triggerOnTables: tables,
     );
   }
