@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
 import 'package:sqlite_async/sqlite3.dart';
 import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
@@ -74,9 +74,7 @@ class BackendWrapper extends InheritedWidget {
   }) {
     String defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
     String _order = order.isNotEmpty ? ' ORDER BY $order' : '';
-    return _db.value!.getAll(
-      sql + defaultWhere + where + _order,
-    );
+    return _db.value!.getAll(sql + defaultWhere + where + _order);
   }
 
   Future<SqliteDatabase> openDatabase() async {
@@ -115,7 +113,11 @@ class BackendWrapper extends InheritedWidget {
     final uri = Uri.parse(
       '${abstractSyncConstants.serverUrl}/data',
     ).replace(queryParameters: queryParams);
-    final response = await http.get(uri);
+
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
+    );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -151,7 +153,7 @@ class BackendWrapper extends InheritedWidget {
               );
               if (result.isNotEmpty) {
                 hasMoreData = false;
-                //might there be infinite loop, perhaps we need to log something to sentry for debug purposes
+                //todo: might there be infinite loop, perhaps we need to log something to sentry for debug purposes
                 needRepeatFullSync = true;
                 return;
               }
@@ -159,6 +161,7 @@ class BackendWrapper extends InheritedWidget {
                 hasMoreData = false;
                 return;
               }
+
               final name = table['id'];
               final primaryKey = 'id';
               final columns = response['data'][0].keys.toList();
@@ -171,6 +174,7 @@ class BackendWrapper extends InheritedWidget {
 INSERT INTO $name (${columns.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
 ''';
+
               final List<Map<String, dynamic>> data =
                   List<Map<String, dynamic>>.from(response['data']);
 
@@ -186,10 +190,10 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
                 hasMoreData = false;
                 await tx.execute(
                   'UPDATE syncing_table SET lts = ? WHERE id = ?',
-                  [data.last["lts"], name],
+                  [data.last['lts'], name],
                 );
               } else {
-                lastReceivedLts = data.last["lts"];
+                lastReceivedLts = data.last['lts'];
               }
             });
           },
@@ -207,7 +211,6 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
       data['id'] = Uuid().v4();
     }
     final columns = data.keys.toList();
-    if (!columns.contains('id')) {}
     final values = data.values.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
     final updatePlaceholders = columns.map((col) => '$col = ?').join(', ');
@@ -228,9 +231,8 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
     final primaryKey = 'id';
     final db = _db.value!;
 
-    final sql = '''
-      UPDATE $tableName SET is_unsynced = 1, is_deleted = 1 WHERE $primaryKey = ?
-    ''';
+    final sql =
+        'UPDATE $tableName SET is_unsynced = 1, is_deleted = 1 WHERE $primaryKey = ?';
 
     await db.execute(sql, [id]);
     fullSync();
@@ -250,7 +252,10 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
       final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
       final response = await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
+        },
         body: jsonEncode({'name': table['id'], 'data': jsonEncode(result)}),
       );
       print('Response: ${response.body}');
@@ -290,8 +295,11 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
     final client = http.Client();
 
     try {
-      final request = http.Request('GET', uri)
-        ..headers['Accept'] = 'text/event-stream';
+      final request =
+          http.Request('GET', uri)
+            ..headers['Accept'] = 'text/event-stream'
+            ..headers['Authorization'] =
+                'Bearer ${abstractSyncConstants.authToken}';
       final response = await client.send(request);
 
       if (response.statusCode == 200) {
@@ -310,27 +318,27 @@ ON CONFLICT($primaryKey) DO UPDATE SET $updateAssignments;
                 }
               },
               onError: (error) {
-                print("Error in SSE connection: $error");
+                print('Error in SSE connection: $error');
                 _sseConnected.value = false;
                 _eventSubscription.value?.cancel();
-                Future.delayed(Duration(seconds: 5), startSyncer);
+                Future.delayed(const Duration(seconds: 5), startSyncer);
               },
               onDone: () {
-                print("SSE connection closed");
+                print('SSE connection closed');
                 _sseConnected.value = false;
                 _eventSubscription.value?.cancel();
-                Future.delayed(Duration(seconds: 5), startSyncer);
+                Future.delayed(const Duration(seconds: 5), startSyncer);
               },
             );
       } else {
         print('Failed to connect to SSE: ${response.statusCode}');
         _sseConnected.value = false;
-        Future.delayed(Duration(seconds: 5), startSyncer);
+        Future.delayed(const Duration(seconds: 5), startSyncer);
       }
     } catch (e) {
-      print("Error connecting to SSE: $e");
+      print('Error connecting to SSE: $e');
       _sseConnected.value = false;
-      Future.delayed(Duration(seconds: 5), startSyncer);
+      Future.delayed(const Duration(seconds: 5), startSyncer);
     }
   }
 }
