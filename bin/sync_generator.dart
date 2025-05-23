@@ -67,15 +67,14 @@ void main(List<String> args) async {
       exit(1);
     }
 
+    final List<dynamic> allTables =
+        modelDefaults['tables'] is List ? List<dynamic>.from(modelDefaults['tables']) : [];
+
     final List<dynamic> syncableTables =
-        modelDefaults['syncable_tables'] is List
-            ? List<dynamic>.from(modelDefaults['syncable_tables'])
-            : [];
+        allTables.where((t) => t is Map<String, dynamic> ? t['is_syncable'] != false : false).toList();
 
     final List<dynamic> unsyncableTables =
-        modelDefaults['unsyncable_tables'] is List
-            ? List<dynamic>.from(modelDefaults['unsyncable_tables'])
-            : [];
+        allTables.where((t) => t is Map<String, dynamic> ? t['is_syncable'] == false : false).toList();
 
     final buffer = StringBuffer();
 
@@ -135,7 +134,6 @@ void main(List<String> args) async {
     buffer.writeln('}');
     buffer.writeln();
 
-    final allTables = [...syncableTables, ...unsyncableTables];
     final Set<String> generatedClasses = {};
 
     for (final tableData in allTables) {
@@ -205,7 +203,7 @@ void main(List<String> args) async {
           );
         } else if (dartType != 'String' && dartType != 'Object') {
           buffer.write(
-            " != null ? ($dartType.tryParse(map['$fieldName'].toString()) ?? (map['$fieldName'] is num ? map['$fieldName'].to$dartType() : null)) : null",
+            " != null ? ($dartType.tryParse(map['$fieldName'].toString()) ?? (map['$fieldName'] is num ? (map['$fieldName'] as num).to${dartType == 'int' ? 'Int' : 'Double'}() : null)) : null",
           );
         } else if (dartType == 'String') {
           buffer.write("?.toString()");
