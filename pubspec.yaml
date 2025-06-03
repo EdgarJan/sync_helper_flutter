@@ -1,5 +1,5 @@
 name: sync_helper_flutter
-version: 1.1.2
+version: 1.1.3
 environment:
   sdk: ^3.7.2
   flutter: ">=3.29.3"
