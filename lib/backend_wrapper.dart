@@ -136,9 +136,12 @@ class BackendNotifier extends ChangeNotifier {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
     final uri = Uri.parse('$_serverUrl/data').replace(queryParameters: q);
-    final res = await http.get(uri);
-    if (res.statusCode == 200) {
-      final data = jsonDecode(res.body);
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
+    );
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
       await onData(data);
     } else {
       throw Exception('Failed to fetch data');
@@ -230,7 +233,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       final uri = Uri.parse('$_serverUrl/data');
       final res = await http.post(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
+        },
         body: jsonEncode({'name': table['id'], 'data': jsonEncode(rows)}),
       );
       if (res.statusCode != 200) {
@@ -272,9 +278,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     }
 
     try {
-      final req = http.Request('GET', uri)
-        ..headers['Accept'] = 'text/event-stream';
-      final res = await client.send(req);
+      final request =
+          http.Request('GET', uri)
+            ..headers['Accept'] = 'text/event-stream'
+            ..headers['Authorization'] =
+                'Bearer ${abstractSyncConstants.authToken}';
+      final res = await client.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;
         await fullSync();
