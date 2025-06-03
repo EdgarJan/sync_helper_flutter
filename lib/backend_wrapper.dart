@@ -295,13 +295,20 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 //todo: performance improvement, maybe we do not need full here
                 if (e.startsWith('data:')) fullSync();
               },
-              onError: (_) => handleError(),
-              onDone: handleError,
+              onError: (e) {
+                if (kDebugMode) {
+                  print('SSE error: $e');
+                  handleError();
+                }
+              },
             );
       } else {
         handleError();
       }
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error starting SSE: $e');
+      }
       handleError();
     }
   }
