@@ -248,22 +248,51 @@ void main(List<String> args) async {
 
     buffer.writeln('class MetaEntity extends AbstractMetaEntity {');
     buffer.writeln('  @override');
-    buffer.writeln('  final Map<String, String> syncableColumns = {');
-    for (final tableData in syncableTables) {
-      if (tableData is! Map<String, dynamic>) continue;
-      final tableName = tableData['name'] as String?;
-      final columns = tableData['columns'] is List
-          ? List<dynamic>.from(tableData['columns'])
-          : [];
+    buffer.writeln('  final Map<String, String> syncableColumnsString = {');
+    for (final entityData in syncableTables) {
+      if (entityData is! Map<String, dynamic>) continue;
+      final tableName = entityData['name'] as String?;
+      final fields =
+          entityData['fields'] is List
+              ? List<dynamic>.from(entityData['fields'])
+              : [];
+      if (tableName == null || tableName.isEmpty || fields.isEmpty) continue;
 
-      if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
-
-      final columnNames = columns
-          .map((col) => col is Map<String, dynamic> ? col['name'] as String? : null)
-          .where((name) => name != null && name.isNotEmpty && name != 'is_unsynced')
-          .toList();
-
+      final columnNames =
+          fields
+              .map(
+                (f) => f is Map<String, dynamic> ? f['name'] as String? : null,
+              )
+              .where(
+                (name) =>
+                    name != null && name.isNotEmpty && name != 'is_unsynced',
+              )
+              .toList();
       buffer.writeln("    '$tableName': '${columnNames.join(', ')}',");
+    }
+    buffer.writeln('  };');
+    buffer.writeln('  @override');
+    buffer.writeln('  final Map<String, List> syncableColumnsList = {');
+    for (final entityData in syncableTables) {
+      if (entityData is! Map<String, dynamic>) continue;
+      final tableName = entityData['name'] as String?;
+      final fields =
+          entityData['fields'] is List
+              ? List<dynamic>.from(entityData['fields'])
+              : [];
+      if (tableName == null || tableName.isEmpty || fields.isEmpty) continue;
+
+      final columnNames =
+          fields
+              .map(
+                (f) => f is Map<String, dynamic> ? f['name'] as String? : null,
+              )
+              .where(
+                (name) =>
+                    name != null && name.isNotEmpty && name != 'is_unsynced',
+              )
+              .toList();
+      buffer.writeln("    '$tableName': ${jsonEncode(columnNames)},");
     }
     buffer.writeln('  };');
     buffer.writeln('}');

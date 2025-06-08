@@ -184,7 +184,8 @@ class BackendNotifier extends ChangeNotifier {
               }
               final name = table['entity_name'];
               final pk = 'id';
-              final cols = resp['data'][0].keys.toList();
+              final cols =
+                  abstractMetaEntity.syncableColumnsList[table['entity_name']]!;
               final placeholders = List.filled(cols.length, '?').join(', ');
               final updates = cols
                   .where((c) => c != pk)
@@ -227,7 +228,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     bool retry = false;
     for (var table in syncingTables) {
       final rows = await db.getAll(
-        'select ${abstractMetaEntity.syncableColumns[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
+        'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
       );
       if (rows.isEmpty) continue;
       final uri = Uri.parse('$_serverUrl/data');
@@ -237,7 +238,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
         },
-        body: jsonEncode({'name': table['entity_name'], 'data': jsonEncode(rows)}),
+        body: jsonEncode({
+          'name': table['entity_name'],
+          'data': jsonEncode(rows),
+        }),
       );
       if (res.statusCode != 200) {
         //todo: not sure, may be infinite loop
@@ -247,7 +251,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       await db.writeTransaction((tx) async {
         //todo: not sure if this most efficient way
         final rows2 = await tx.getAll(
-          'select ${abstractMetaEntity.syncableColumns[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
+          'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
         );
         if (DeepCollectionEquality().equals(rows, rows2)) {
           await tx.execute(
