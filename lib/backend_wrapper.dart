@@ -155,6 +155,7 @@ class BackendNotifier extends ChangeNotifier {
   Future<void> fullSync() async {
     if (fullSyncStarted) {
       repeat = true;
+      return;
     }
     fullSyncStarted = true;
     try {
@@ -191,15 +192,15 @@ class BackendNotifier extends ChangeNotifier {
                 }
                 final name = table['entity_name'];
                 final pk = 'id';
-                final cols = abstractMetaEntity
-                    .syncableColumnsList[table['entity_name']]!;
+                final cols =
+                    abstractMetaEntity
+                        .syncableColumnsList[table['entity_name']]!;
                 final placeholders = List.filled(cols.length, '?').join(', ');
                 final updates = cols
                     .where((c) => c != pk)
                     .map((c) => '$c = excluded.$c')
                     .join(', ');
-                final sql =
-                    '''
+                final sql = '''
 INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
@@ -207,11 +208,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 if (kDebugMode) {
                   print('Last lts in response: ${data.last['lts']}');
                 }
-                final batch = data
-                    .map<List<Object?>>(
-                      (e) => cols.map<Object?>((c) => e[c]).toList(),
-                    )
-                    .toList();
+                final batch =
+                    data
+                        .map<List<Object?>>(
+                          (e) => cols.map<Object?>((c) => e[c]).toList(),
+                        )
+                        .toList();
                 await tx.executeBatch(sql, batch);
                 await tx.execute(
                   'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
