@@ -148,79 +148,98 @@ class BackendNotifier extends ChangeNotifier {
     }
   }
 
+  var fullSyncStarted = false;
+  bool repeat = false;
+
   //todo: sometimes we need to sync only one table, not all
   Future<void> fullSync() async {
-    bool repeat = false;
-    final tables = await _db!.getAll('select * from syncing_table');
-    await _sendUnsynced(syncingTables: tables);
-    for (var table in tables) {
-      int page = 1000;
-      bool more = true;
-      String? lts = table['last_received_lts']?.toString() ?? '';
-      while (more && _db != null) {
-        await _fetchData(
-          name: table['entity_name'],
-          lastReceivedLts: lts,
-          pageSize: page,
-          onData: (resp) async {
-            await _db!.writeTransaction((tx) async {
-              final unsynced = await tx.getAll(
-                'select * from ${table['entity_name']} where is_unsynced = 1',
-              );
-              if (unsynced.isNotEmpty) {
-                more = false;
-                //todo: might there be infinite loop, perhaps we need to log something to sentry for debug purposes
-                repeat = true;
-                return;
-              }
-              if (kDebugMode) {
-                print('Syncing ${table['entity_name']}');
-                print('Last received LTS: $lts');
-                print('Received ${resp['data']?.length ?? 0} rows');
-              }
-              if ((resp['data']?.length ?? 0) == 0) {
-                more = false;
-                return;
-              }
-              final name = table['entity_name'];
-              final pk = 'id';
-              final cols =
-                  abstractMetaEntity.syncableColumnsList[table['entity_name']]!;
-              final placeholders = List.filled(cols.length, '?').join(', ');
-              final updates = cols
-                  .where((c) => c != pk)
-                  .map((c) => '$c = excluded.$c')
-                  .join(', ');
-              final sql = '''
+    if (fullSyncStarted) {
+      repeat = true;
+    }
+    fullSyncStarted = true;
+    try {
+      final tables = await _db!.getAll('select * from syncing_table');
+      await _sendUnsynced(syncingTables: tables);
+      for (var table in tables) {
+        int page = 1000;
+        bool more = true;
+        String? lts = table['last_received_lts']?.toString() ?? '';
+        while (more && _db != null) {
+          await _fetchData(
+            name: table['entity_name'],
+            lastReceivedLts: lts,
+            pageSize: page,
+            onData: (resp) async {
+              await _db!.writeTransaction((tx) async {
+                final unsynced = await tx.getAll(
+                  'select * from ${table['entity_name']} where is_unsynced = 1',
+                );
+                if (unsynced.isNotEmpty) {
+                  more = false;
+                  //todo: might there be infinite loop, perhaps we need to log something to sentry for debug purposes
+                  repeat = true;
+                  return;
+                }
+                if (kDebugMode) {
+                  print('Syncing ${table['entity_name']}');
+                  print('Last received LTS: $lts');
+                  print('Received ${resp['data']?.length ?? 0} rows');
+                }
+                if ((resp['data']?.length ?? 0) == 0) {
+                  more = false;
+                  return;
+                }
+                final name = table['entity_name'];
+                final pk = 'id';
+                final cols = abstractMetaEntity
+                    .syncableColumnsList[table['entity_name']]!;
+                final placeholders = List.filled(cols.length, '?').join(', ');
+                final updates = cols
+                    .where((c) => c != pk)
+                    .map((c) => '$c = excluded.$c')
+                    .join(', ');
+                final sql =
+                    '''
 INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
-              final data = List<Map<String, dynamic>>.from(resp['data']);
-              if (kDebugMode) {
-                print('Last lts in response: ${data.last['lts']}');
-              }
-              final batch =
-                  data
-                      .map<List<Object?>>(
-                        (e) => cols.map<Object?>((c) => e[c]).toList(),
-                      )
-                      .toList();
-              await tx.executeBatch(sql, batch);
-              await tx.execute(
-                'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
-                [data.last['lts'], name],
-              );
-              if (data.length < page) {
-                more = false;
-              } else {
-                lts = data.last['lts'];
-              }
-            });
-          },
-        );
+                final data = List<Map<String, dynamic>>.from(resp['data']);
+                if (kDebugMode) {
+                  print('Last lts in response: ${data.last['lts']}');
+                }
+                final batch = data
+                    .map<List<Object?>>(
+                      (e) => cols.map<Object?>((c) => e[c]).toList(),
+                    )
+                    .toList();
+                await tx.executeBatch(sql, batch);
+                await tx.execute(
+                  'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
+                  [data.last['lts'], name],
+                );
+                if (data.length < page) {
+                  more = false;
+                } else {
+                  lts = data.last['lts'];
+                }
+              });
+            },
+          );
+        }
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        print('Error during full sync: $e');
+        print(stackTrace);
       }
     }
-    if (repeat) await fullSync();
+
+    fullSyncStarted = false;
+
+    if (repeat) {
+      repeat = false;
+      await fullSync();
+    }
   }
 
   Future<void> _sendUnsynced({required ResultSet syncingTables}) async {
