@@ -17,14 +17,22 @@ void main(List<String> args) async {
     serverUrl = serverUrl.substring(0, serverUrl.length - 1);
   }
 
-  final modelsUrl = Uri.parse('$serverUrl/models');
+  final modelsUrl = Uri.parse('${serverUrl}/models');
   final constantsServerUrl = args[0];
 
   try {
+    print('Fetching data from: $modelsUrl');
     final response = await http.get(
       modelsUrl,
-      headers: {'Authorization': 'Bearer $authToken'},
+      headers: {
+        'Authorization': 'Bearer $authToken',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
     );
+
+    print('Response status code: ${response.statusCode}');
+    print('Response headers: ${response.headers}');
 
     if (response.statusCode != 200) {
       print('Error fetching data from $modelsUrl: ${response.statusCode}');
@@ -33,16 +41,19 @@ void main(List<String> args) async {
     }
 
     final List<dynamic> allModels = jsonDecode(response.body);
-    final List<dynamic> appModels = allModels
-        .where((m) => m['app_id'] == targetAppId && m['version'] is int)
-        .toList();
+    final List<dynamic> appModels =
+        allModels
+            .where((m) => m['app_id'] == targetAppId && m['version'] is int)
+            .toList();
 
     if (appModels.isEmpty) {
       print('Error: No valid models found for app_id "$targetAppId".');
       exit(1);
     }
 
-    appModels.sort((a, b) => (a['version'] as int).compareTo(b['version'] as int));
+    appModels.sort(
+      (a, b) => (a['version'] as int).compareTo(b['version'] as int),
+    );
 
     final latestModel = appModels.last;
     final int latestVersion = latestModel['version'];
@@ -68,13 +79,25 @@ void main(List<String> args) async {
     }
 
     final List<dynamic> allTables =
-        modelDefaults['tables'] is List ? List<dynamic>.from(modelDefaults['tables']) : [];
+        modelDefaults['tables'] is List
+            ? List<dynamic>.from(modelDefaults['tables'])
+            : [];
 
     final List<dynamic> syncableTables =
-        allTables.where((t) => t is Map<String, dynamic> ? t['is_syncable'] != false : false).toList();
+        allTables
+            .where(
+              (t) =>
+                  t is Map<String, dynamic> ? t['is_syncable'] != false : false,
+            )
+            .toList();
 
     final List<dynamic> unsyncableTables =
-        allTables.where((t) => t is Map<String, dynamic> ? t['is_syncable'] == false : false).toList();
+        allTables
+            .where(
+              (t) =>
+                  t is Map<String, dynamic> ? t['is_syncable'] == false : false,
+            )
+            .toList();
 
     final buffer = StringBuffer();
 
@@ -94,7 +117,9 @@ void main(List<String> args) async {
     buffer.writeln('}');
     buffer.writeln();
 
-    buffer.writeln('class PregeneratedMigrations extends AbstractPregeneratedMigrations {');
+    buffer.writeln(
+      'class PregeneratedMigrations extends AbstractPregeneratedMigrations {',
+    );
     buffer.writeln('  @override');
     buffer.writeln('  final SqliteMigrations migrations = SqliteMigrations()');
 
@@ -139,9 +164,10 @@ void main(List<String> args) async {
     for (final tableData in allTables) {
       if (tableData is! Map<String, dynamic>) continue;
       final tableName = tableData['name'] as String?;
-      final columns = tableData['columns'] is List
-          ? List<dynamic>.from(tableData['columns'])
-          : [];
+      final columns =
+          tableData['columns'] is List
+              ? List<dynamic>.from(tableData['columns'])
+              : [];
 
       if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
 
@@ -160,7 +186,8 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
 
         final dartType = mapSqlTypeToDart(columnType);
         final fieldName = columnName;
@@ -176,7 +203,9 @@ void main(List<String> args) async {
       buffer.writeln('  });');
       buffer.writeln();
 
-      buffer.writeln('  factory $className.fromMap(Map<String, dynamic> map) {');
+      buffer.writeln(
+        '  factory $className.fromMap(Map<String, dynamic> map) {',
+      );
       buffer.writeln('    return $className(');
       for (final columnData in columns) {
         if (columnData is! Map<String, dynamic>) continue;
@@ -186,7 +215,8 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
 
         final dartType = mapSqlTypeToDart(columnType);
         final fieldName = columnName;
@@ -224,7 +254,8 @@ void main(List<String> args) async {
         if (columnName == null ||
             columnName.isEmpty ||
             columnType == null ||
-            columnType.isEmpty) continue;
+            columnType.isEmpty)
+          continue;
 
         final fieldName = columnName;
         final dartType = mapSqlTypeToDart(columnType);
@@ -249,50 +280,72 @@ void main(List<String> args) async {
     buffer.writeln('class MetaEntity extends AbstractMetaEntity {');
     buffer.writeln('  @override');
     buffer.writeln('  final Map<String, String> syncableColumnsString = {');
-    for (final entityData in syncableTables) {
-      if (entityData is! Map<String, dynamic>) continue;
-      final tableName = entityData['name'] as String?;
-      final fields =
-          entityData['fields'] is List
-              ? List<dynamic>.from(entityData['fields'])
-              : [];
-      if (tableName == null || tableName.isEmpty || fields.isEmpty) continue;
+    for (final tableData in syncableTables) {
+      if (tableData is! Map<String, dynamic>) continue;
+      final tableName = tableData['name'] as String?;
+      if (tableName == null || tableName.isEmpty) continue;
 
-      final columnNames =
-          fields
-              .map(
-                (f) => f is Map<String, dynamic> ? f['name'] as String? : null,
-              )
-              .where(
-                (name) =>
-                    name != null && name.isNotEmpty && name != 'is_unsynced',
-              )
+      final columns =
+          tableData['columns'] is List
+              ? List<dynamic>.from(tableData['columns'])
+              : [];
+      final syncableColumnNames =
+          columns
+              .map((c) {
+                if (c is! Map<String, dynamic>) return null;
+                final colName = c['name'] as String?;
+                final isSyncable = c['is_syncable'] as bool? ?? true;
+                if (colName != null &&
+                    colName.isNotEmpty &&
+                    isSyncable &&
+                    colName != 'is_unsynced') {
+                  return colName;
+                }
+                return null;
+              })
+              .where((c) => c != null)
+              .cast<String>()
               .toList();
-      buffer.writeln("    '$tableName': '${columnNames.join(', ')}',");
+
+      if (syncableColumnNames.isNotEmpty) {
+        buffer.writeln("    '$tableName': '${syncableColumnNames.join(',')}',");
+      }
     }
     buffer.writeln('  };');
+
     buffer.writeln('  @override');
     buffer.writeln('  final Map<String, List> syncableColumnsList = {');
-    for (final entityData in syncableTables) {
-      if (entityData is! Map<String, dynamic>) continue;
-      final tableName = entityData['name'] as String?;
-      final fields =
-          entityData['fields'] is List
-              ? List<dynamic>.from(entityData['fields'])
-              : [];
-      if (tableName == null || tableName.isEmpty || fields.isEmpty) continue;
+    for (final tableData in syncableTables) {
+      if (tableData is! Map<String, dynamic>) continue;
+      final tableName = tableData['name'] as String?;
+      if (tableName == null || tableName.isEmpty) continue;
 
-      final columnNames =
-          fields
-              .map(
-                (f) => f is Map<String, dynamic> ? f['name'] as String? : null,
-              )
-              .where(
-                (name) =>
-                    name != null && name.isNotEmpty && name != 'is_unsynced',
-              )
+      final columns =
+          tableData['columns'] is List
+              ? List<dynamic>.from(tableData['columns'])
+              : [];
+      final syncableColumnNames =
+          columns
+              .map((c) {
+                if (c is! Map<String, dynamic>) return null;
+                final colName = c['name'] as String?;
+                final isSyncable = c['is_syncable'] as bool? ?? true;
+                if (colName != null &&
+                    colName.isNotEmpty &&
+                    isSyncable &&
+                    colName != 'is_unsynced') {
+                  return colName;
+                }
+                return null;
+              })
+              .where((c) => c != null)
+              .cast<String>()
               .toList();
-      buffer.writeln("    '$tableName': ${jsonEncode(columnNames)},");
+
+      if (syncableColumnNames.isNotEmpty) {
+        final columnListLiteral = jsonEncode(syncableColumnNames);
+        buffer.writeln("    '$tableName': $columnListLiteral,");
+      }
     }
     buffer.writeln('  };');
     buffer.writeln('}');
@@ -323,7 +376,9 @@ void generateSqlExecutionCode(
 
   for (final ddlObject in ddlObjects) {
     if (ddlObject is! Map<String, dynamic>) {
-      print('Warning: Invalid DDL object format in $context for version $version: $ddlObject');
+      print(
+        'Warning: Invalid DDL object format in $context for version $version: $ddlObject',
+      );
       continue;
     }
 
@@ -349,7 +404,9 @@ void generateSqlExecutionCode(
       final params = ddlObject['params'];
       if (params is List && params.isNotEmpty) {
         final paramsLiteral = jsonEncode(params);
-        buffer.writeln("${indent}await tx.executeBatch(r'''$escapedSql''', $paramsLiteral);");
+        buffer.writeln(
+          "${indent}await tx.executeBatch(r'''$escapedSql''', $paramsLiteral);",
+        );
       } else {
         print(
           'Warning: Missing, invalid, or empty "params" for batch operation in $context for version $version: $ddlObject. Falling back to tx.execute.',
