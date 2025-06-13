@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sqlite_async/sqlite3.dart';
 import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
@@ -121,7 +122,19 @@ class BackendNotifier extends ChangeNotifier {
       final dir = await getApplicationDocumentsDirectory();
       base = dir.path;
     }
-    final full = p.join(base, name);
+
+    // Determine application identifier (bundle id / package name) so that
+    // database files are namespaced per-application first and then per-user.
+    String appId = 'unknown_app';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (info.packageName.isNotEmpty) appId = info.packageName;
+    } catch (_) {
+      // If PackageInfo isn't available on the current platform we silently
+      // fall back to a default folder to avoid crashing.
+    }
+
+    final full = p.join(base, appId, name);
     final dir = Directory(p.dirname(full));
     if (!await dir.exists()) await dir.create(recursive: true);
     return full;
