@@ -336,8 +336,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
               onError: (e) {
                 if (kDebugMode) {
                   print('SSE error: $e');
-                  handleError();
                 }
+                 handleError();
               },
             );
       } else {
