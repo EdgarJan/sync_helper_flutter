@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -13,6 +14,9 @@ import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
 import 'package:sync_helper_flutter/sync_abstract.dart';
 import 'package:uuid/uuid.dart';
+
+// Sentry
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 class BackendNotifier extends ChangeNotifier {
   final AbstractPregeneratedMigrations abstractPregeneratedMigrations;
@@ -29,9 +33,56 @@ class BackendNotifier extends ChangeNotifier {
     required this.abstractPregeneratedMigrations,
     required this.abstractSyncConstants,
     required this.abstractMetaEntity,
-  });
+  }) : _httpClient = SentryHttpClient(client: http.Client());
+
+  // HTTP client wrapped with Sentry for automatic breadcrumbs / tracing
+  final http.Client _httpClient;
 
   SqliteDatabase? get db => _db;
+
+  // ---------------------------------------------------------------------------
+  // Logging helpers that respect the host application's Sentry setup. Calls are
+  // no-ops when Sentry isn't initialized.
+  // ---------------------------------------------------------------------------
+
+  void _logDebug(String message) {
+    // Using the new Sentry logger API (v9) so that logs show up in the Logs UI
+    // once the application has enabled it.
+    Sentry.logger.debug(message);
+    if (kDebugMode) {
+      // Retain local console output during development for convenience.
+      // ignore: avoid_print
+      print(message);
+    }
+  }
+
+  void _logWarning(String message) {
+    Sentry.logger.warn(message);
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print(message);
+    }
+  }
+
+  void _logError(String message, {Object? error, StackTrace? stackTrace}) {
+    Sentry.logger.error(message);
+    // Forward the throwable so that it appears as an error event as well.
+    if (error != null) {
+      Sentry.captureException(error, stackTrace: stackTrace);
+    }
+    if (kDebugMode) {
+      // ignore: avoid_print
+      print(message);
+      if (error != null) {
+        // ignore: avoid_print
+        print(error);
+      }
+      if (stackTrace != null) {
+        // ignore: avoid_print
+        print(stackTrace);
+      }
+    }
+  }
 
   Future<void> initDb({String? serverUrl, required String userId}) async {
     _serverUrl = serverUrl ?? abstractSyncConstants.serverUrl;
@@ -49,6 +100,10 @@ class BackendNotifier extends ChangeNotifier {
     _sseConnected = false;
     if (_db != null) await _db!.close();
     _db = null;
+    // Note: we intentionally keep the HTTP client alive for the lifetime of
+    // this notifier instance. Users typically dispose the BackendNotifier once
+    // during app shutdown, in which case the process exits and sockets are
+    // cleaned up automatically.
     notifyListeners();
   }
 
@@ -149,7 +204,7 @@ class BackendNotifier extends ChangeNotifier {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
     final uri = Uri.parse('$_serverUrl/data').replace(queryParameters: q);
-    final response = await http.get(
+    final response = await _httpClient.get(
       uri,
       headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
     );
@@ -194,11 +249,9 @@ class BackendNotifier extends ChangeNotifier {
                   repeat = true;
                   return;
                 }
-                if (kDebugMode) {
-                  print('Syncing ${table['entity_name']}');
-                  print('Last received LTS: $lts');
-                  print('Received ${resp['data']?.length ?? 0} rows');
-                }
+                _logDebug('Syncing ${table['entity_name']}');
+                _logDebug('Last received LTS: $lts');
+                _logDebug('Received ${resp['data']?.length ?? 0} rows');
                 if ((resp['data']?.length ?? 0) == 0) {
                   more = false;
                   return;
@@ -218,9 +271,7 @@ INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
                 final data = List<Map<String, dynamic>>.from(resp['data']);
-                if (kDebugMode) {
-                  print('Last lts in response: ${data.last['lts']}');
-                }
+                _logDebug('Last lts in response: ${data.last['lts']}');
                 final batch =
                     data
                         .map<List<Object?>>(
@@ -243,10 +294,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         }
       }
     } catch (e, stackTrace) {
-      if (kDebugMode) {
-        print('Error during full sync: $e');
-        print(stackTrace);
-      }
+      _logError('Error during full sync', error: e, stackTrace: stackTrace);
     }
 
     fullSyncStarted = false;
@@ -266,7 +314,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       );
       if (rows.isEmpty) continue;
       final uri = Uri.parse('$_serverUrl/data');
-      final res = await http.post(
+      final res = await _httpClient.post(
         uri,
         headers: {
           'Content-Type': 'application/json',
@@ -308,7 +356,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
   Future<void> _startSyncer() async {
     if (_sseConnected) return;
     final uri = Uri.parse('$_serverUrl/events');
-    final client = http.Client();
+    // Use Sentry-enabled HTTP client
     void handleError() {
       _sseConnected = false;
       _eventSubscription?.cancel();
@@ -321,7 +369,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             ..headers['Accept'] = 'text/event-stream'
             ..headers['Authorization'] =
                 'Bearer ${abstractSyncConstants.authToken}';
-      final res = await client.send(request);
+      final res = await _httpClient.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;
         await fullSync();
@@ -334,19 +382,15 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 if (e.startsWith('data:')) fullSync();
               },
               onError: (e) {
-                if (kDebugMode) {
-                  print('SSE error: $e');
-                }
-                 handleError();
+                _logWarning('SSE error: $e');
+                handleError();
               },
             );
       } else {
         handleError();
       }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error starting SSE: $e');
-      }
+    } catch (e, st) {
+      _logError('Error starting SSE', error: e, stackTrace: st);
       handleError();
     }
   }
