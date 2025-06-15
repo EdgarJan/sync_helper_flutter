@@ -141,7 +141,8 @@ class BackendNotifier extends ChangeNotifier {
     final values = data.values.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
     final updatePlaceholders = columns.map((c) => '$c = ?').join(', ');
-    final sql = '''
+    final sql =
+        '''
       INSERT INTO $tableName (${columns.join(', ')}, is_unsynced)
       VALUES ($placeholders, 1)
       ON CONFLICT(id) DO UPDATE SET $updatePlaceholders, is_unsynced = 1
@@ -221,7 +222,9 @@ class BackendNotifier extends ChangeNotifier {
 
   //todo: sometimes we need to sync only one table, not all
   Future<void> fullSync() async {
+    _logDebug('Starting full sync');
     if (fullSyncStarted) {
+      _logDebug('Full sync already started, skipping');
       repeat = true;
       return;
     }
@@ -258,26 +261,25 @@ class BackendNotifier extends ChangeNotifier {
                 }
                 final name = table['entity_name'];
                 final pk = 'id';
-                final cols =
-                    abstractMetaEntity
-                        .syncableColumnsList[table['entity_name']]!;
+                final cols = abstractMetaEntity
+                    .syncableColumnsList[table['entity_name']]!;
                 final placeholders = List.filled(cols.length, '?').join(', ');
                 final updates = cols
                     .where((c) => c != pk)
                     .map((c) => '$c = excluded.$c')
                     .join(', ');
-                final sql = '''
+                final sql =
+                    '''
 INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
                 final data = List<Map<String, dynamic>>.from(resp['data']);
                 _logDebug('Last lts in response: ${data.last['lts']}');
-                final batch =
-                    data
-                        .map<List<Object?>>(
-                          (e) => cols.map<Object?>((c) => e[c]).toList(),
-                        )
-                        .toList();
+                final batch = data
+                    .map<List<Object?>>(
+                      (e) => cols.map<Object?>((c) => e[c]).toList(),
+                    )
+                    .toList();
                 await tx.executeBatch(sql, batch);
                 await tx.execute(
                   'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
@@ -301,8 +303,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
     if (repeat) {
       repeat = false;
+      _logDebug('Need to repeat full sync');
       await fullSync();
     }
+    _logDebug('Full sync completed');
   }
 
   Future<void> _sendUnsynced({required ResultSet syncingTables}) async {
@@ -354,24 +358,31 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
   }
 
   Future<void> _startSyncer() async {
-    if (_sseConnected) return;
+    _logDebug('Starting SSE syncer');
+    if (_sseConnected) {
+      _logDebug('SSE syncer already connected, skipping start');
+      return;
+    }
     final uri = Uri.parse('$_serverUrl/events');
+    _logDebug('Connecting to SSE at $uri');
     // Use Sentry-enabled HTTP client
     void handleError() {
+      _logWarning('SSE connection error, retrying in 5 seconds');
       _sseConnected = false;
       _eventSubscription?.cancel();
       Future.delayed(const Duration(seconds: 5), _startSyncer);
     }
 
     try {
-      final request =
-          http.Request('GET', uri)
-            ..headers['Accept'] = 'text/event-stream'
-            ..headers['Authorization'] =
-                'Bearer ${abstractSyncConstants.authToken}';
+      final request = http.Request('GET', uri)
+        ..headers['Accept'] = 'text/event-stream'
+        ..headers['Authorization'] =
+            'Bearer ${abstractSyncConstants.authToken}';
       final res = await _httpClient.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;
+        _logDebug('SSE connection established');
+        _logDebug('Starting full sync after SSE connection');
         await fullSync();
         _eventSubscription = res.stream
             .transform(utf8.decoder)
@@ -379,7 +390,11 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             .listen(
               (e) {
                 //todo: performance improvement, maybe we do not need full here
-                if (e.startsWith('data:')) fullSync();
+                _logDebug('SSE event received: $e');
+                if (e.startsWith('data:')) {
+                  _logDebug('Performing full sync after SSE event starting with "data:"');
+                  fullSync();
+                }
               },
               onError: (e) {
                 _logWarning('SSE error: $e');
