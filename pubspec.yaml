@@ -1,7 +1,10 @@
 name: sync_helper_flutter
 version: 1.2.3
 environment:
-  sdk: '>=3.8.1'
+  # The only constraint is on the Flutter framework version. Any Dart SDK
+  # version compatible with the selected Flutter version will be used. A
+  # minimal Dart SDK lower-bound is still required by pub.
+  sdk: '>=3.8.0'
   flutter: '>=3.32.4'
 dependencies:
   flutter:
@@ -13,10 +16,12 @@ dependencies:
   package_info_plus: 8.3.0
   # Sentry for error monitoring & logging – SDK will be initialized by the
   # application that depends on this library. We only use the APIs.
-  sentry_flutter: 9.0.0-RC.4
+  sentry_flutter: 9.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: 6.0.0
+  test: any
 executables:
   sync_generator:
+  mock_sync_server:

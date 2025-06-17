@@ -3,7 +3,20 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 void main(List<String> args) async {
-  if (args.length != 3) {
+  const requiredArgNames = ['server_url', 'app_id', 'auth_token'];
+
+  if (args.length != requiredArgNames.length) {
+    if (args.length < requiredArgNames.length) {
+      final missing = requiredArgNames.sublist(args.length);
+      final missingArgs = missing.map((n) => '<$n>').join(', ');
+      final plural = missing.length > 1 ? 's' : '';
+      print('Error: Missing argument$plural: $missingArgs');
+    } else {
+      // Extra arguments supplied.
+      final extra = args.sublist(requiredArgNames.length).join(', ');
+      print('Error: Unexpected extra argument${args.length - requiredArgNames.length > 1 ? 's' : ''}: $extra');
+    }
+
     print('Usage: dart sync_generator.dart <server_url> <app_id> <auth_token>');
     exit(1);
   }
