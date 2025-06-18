@@ -248,7 +248,7 @@ class BackendNotifier extends ChangeNotifier {
                 );
                 if (unsynced.isNotEmpty) {
                   more = false;
-                  //todo: might there be infinite loop, perhaps we need to log something to sentry for debug purposes
+                  _logDebug('Unsynced rows found in ${table['entity_name']}, skipping full sync for this table');
                   repeat = true;
                   return;
                 }
@@ -330,7 +330,9 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         }),
       );
       if (res.statusCode != 200) {
-        //todo: not sure, may be infinite loop
+        _logWarning(
+          'Failed to send unsynced data for ${table['entity_name']}: ${res.statusCode} ${res.reasonPhrase}',
+        );
         retry = true;
         break;
       }
