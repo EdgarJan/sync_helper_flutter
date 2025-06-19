@@ -248,7 +248,6 @@ class BackendNotifier extends ChangeNotifier {
                 );
                 if (unsynced.isNotEmpty) {
                   more = false;
-                  _logDebug('Unsynced rows found in ${table['entity_name']}, skipping full sync for this table');
                   repeat = true;
                   return;
                 }
@@ -318,6 +317,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       );
       if (rows.isEmpty) continue;
       final uri = Uri.parse('$_serverUrl/data');
+      _logDebug('Sending unsynced data for ${table['entity_name']}');
       final res = await _httpClient.post(
         uri,
         headers: {
@@ -330,9 +330,6 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         }),
       );
       if (res.statusCode != 200) {
-        _logWarning(
-          'Failed to send unsynced data for ${table['entity_name']}: ${res.statusCode} ${res.reasonPhrase}',
-        );
         retry = true;
         break;
       }
@@ -348,7 +345,13 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           await tx.execute(
             'update ${table['entity_name']} set is_unsynced = 0 where is_unsynced = 1',
           );
+          _logDebug(
+            'Unsynced data for ${table['entity_name']} sent and marked as synced',
+          );
         } else {
+          _logWarning(
+            'Unsynced data for ${table['entity_name']} became unsynced again after sending, retrying sync',
+          );
           retry = true;
         }
       });
@@ -394,7 +397,9 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 //todo: performance improvement, maybe we do not need full here
                 _logDebug('SSE event received: $e');
                 if (e.startsWith('data:')) {
-                  _logDebug('Performing full sync after SSE event starting with "data:"');
+                  _logDebug(
+                    'Performing full sync after SSE event starting with "data:"',
+                  );
                   fullSync();
                 }
               },
