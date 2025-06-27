@@ -7,8 +7,9 @@ import 'package:test/test.dart';
 /// file is produced for the `lt.helper.hard_app` application.
 void main() {
   const token = '75D2BCBC-2490-4525-A499-4FFFFDE81D67';
-  const port = 3000; // chosen to match sample documentation
-  const serverUrl = 'http://localhost:$port';
+  // The port is selected dynamically at runtime to avoid collisions.
+  int? port;
+  late String serverUrl;
   const appId = 'lt.helper.hard_app';
 
   late Process serverProcess;
@@ -22,18 +23,27 @@ void main() {
 
     final dartExecutable = Platform.resolvedExecutable;
 
-    // Start the mock server.
+    // Start the mock server on a random free port (pass 0).
     serverProcess = await Process.start(
       dartExecutable,
-      ['bin/mock_sync_server.dart', port.toString(), token],
+      ['bin/mock_sync_server.dart', '0', token],
       workingDirectory: Directory.current.path,
     );
 
-    // Wait until the server prints its listening message so that we know it is
-    // ready to accept connections.
-    await serverProcess.stdout
+    // Wait until the server prints the banner, then parse the actual port.
+    final listeningLine = await serverProcess.stdout
         .transform(SystemEncoding().decoder)
-        .firstWhere((line) => line.contains('Mock sync server listening'));
+        .firstWhere((line) => line.contains('Mock sync server listening'))
+        .timeout(const Duration(seconds: 10));
+
+    final match = RegExp(r'http://localhost:(\d+)').firstMatch(listeningLine);
+    if (match == null) {
+      throw StateError('Could not determine port from server output: ' +
+          listeningLine);
+    }
+
+    port = int.parse(match.group(1)!);
+    serverUrl = 'http://localhost:$port';
   });
 
   tearDownAll(() async {
