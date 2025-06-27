@@ -26,7 +26,6 @@ class BackendNotifier extends ChangeNotifier {
   SqliteDatabase? _db;
   bool _sseConnected = false;
   StreamSubscription? _eventSubscription;
-  String? _serverUrl;
   String? userId;
 
   BackendNotifier({
@@ -84,8 +83,7 @@ class BackendNotifier extends ChangeNotifier {
     }
   }
 
-  Future<void> initDb({String? serverUrl, required String userId}) async {
-    _serverUrl = serverUrl ?? abstractSyncConstants.serverUrl;
+  Future<void> initDb({required String userId}) async {
     this.userId = userId;
     final tempDb = await _openDatabase();
     await abstractPregeneratedMigrations.migrations.migrate(tempDb);
@@ -204,7 +202,7 @@ class BackendNotifier extends ChangeNotifier {
   }) async {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
-    final uri = Uri.parse('$_serverUrl/data').replace(queryParameters: q);
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}}/data').replace(queryParameters: q);
     final response = await _httpClient.get(
       uri,
       headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
@@ -316,7 +314,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
       );
       if (rows.isEmpty) continue;
-      final uri = Uri.parse('$_serverUrl/data');
+      final uri = Uri.parse('${abstractSyncConstants.serverUrl}}/data');
       _logDebug('Sending unsynced data for ${table['entity_name']}');
       final res = await _httpClient.post(
         uri,
@@ -368,7 +366,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       _logDebug('SSE syncer already connected, skipping start');
       return;
     }
-    final uri = Uri.parse('$_serverUrl/events');
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/events');
     _logDebug('Connecting to SSE at $uri');
     // Use Sentry-enabled HTTP client
     void handleError() {
