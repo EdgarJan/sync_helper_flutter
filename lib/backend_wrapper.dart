@@ -314,7 +314,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
       );
       if (rows.isEmpty) continue;
-      final uri = Uri.parse('${abstractSyncConstants.serverUrl}}/data');
+      final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
       _logDebug('Sending unsynced data for ${table['entity_name']}');
       final res = await _httpClient.post(
         uri,
