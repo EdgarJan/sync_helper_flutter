@@ -202,7 +202,7 @@ class BackendNotifier extends ChangeNotifier {
   }) async {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
-    final uri = Uri.parse('${abstractSyncConstants.serverUrl}}/data').replace(queryParameters: q);
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data').replace(queryParameters: q);
     final response = await _httpClient.get(
       uri,
       headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
