@@ -17,6 +17,7 @@ dependencies:
   # Sentry for error monitoring & logging – SDK will be initialized by the
   # application that depends on this library. We only use the APIs.
   sentry_flutter: 9.0.0
+  auth0_flutter: ^1.5.1
 dev_dependencies:
   flutter_test:
     sdk: flutter

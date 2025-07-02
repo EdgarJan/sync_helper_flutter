@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 void main(List<String> args) async {
-  const requiredArgNames = ['server_url', 'app_id', 'auth_token'];
+  const requiredArgNames = ['server_url', 'app_id', 'auth0_domain', 'auth0_client_id'];
 
   if (args.length != requiredArgNames.length) {
     if (args.length < requiredArgNames.length) {
@@ -17,13 +17,14 @@ void main(List<String> args) async {
       print('Error: Unexpected extra argument${args.length - requiredArgNames.length > 1 ? 's' : ''}: $extra');
     }
 
-    print('Usage: dart sync_generator.dart <server_url> <app_id> <auth_token>');
+    print('Usage: dart sync_generator.dart <server_url> <app_id> <auth0_domain> <auth0_client_id>');
     exit(1);
   }
 
   String serverUrl = args[0];
   final targetAppId = args[1];
-  final authToken = args[2];
+  final auth0Domain = args[2];
+  final auth0ClientId = args[3];
   final outputFilePath = 'pregenerated.dart';
 
   if (serverUrl.endsWith('/')) {
@@ -38,7 +39,6 @@ void main(List<String> args) async {
     final response = await http.get(
       modelsUrl,
       headers: {
-        'Authorization': 'Bearer $authToken',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -126,7 +126,9 @@ void main(List<String> args) async {
     buffer.writeln("  @override");
     buffer.writeln("  final String serverUrl = '$constantsServerUrl';");
     buffer.writeln("  @override");
-    buffer.writeln("  final String authToken = '$authToken';");
+    buffer.writeln("  final String auth0Domain = '$auth0Domain';");
+    buffer.writeln("  @override");
+    buffer.writeln("  final String auth0ClientId = '$auth0ClientId';");
     buffer.writeln('}');
     buffer.writeln();
 

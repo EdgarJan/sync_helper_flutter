@@ -3,7 +3,8 @@ import 'package:sqlite_async/sqlite_async.dart';
 abstract class AbstractSyncConstants {
   String get appId;
   String get serverUrl;
-  String get authToken;
+  String get auth0Domain;
+  String get auth0ClientId;
 }
 
 abstract class AbstractPregeneratedMigrations {
