@@ -2,20 +2,21 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:auth0_flutter/auth0_flutter.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:sqlite_async/sqlite3.dart';
 import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
 import 'package:sync_helper_flutter/sync_abstract.dart';
 import 'package:uuid/uuid.dart';
+
+// Sentry
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 class BackendNotifier extends ChangeNotifier {
   final AbstractPregeneratedMigrations abstractPregeneratedMigrations;
@@ -26,38 +27,17 @@ class BackendNotifier extends ChangeNotifier {
   bool _sseConnected = false;
   StreamSubscription? _eventSubscription;
   String? userId;
-  Credentials? _credentials;
-  late final Auth0 auth0;
 
   BackendNotifier({
     required this.abstractPregeneratedMigrations,
     required this.abstractSyncConstants,
     required this.abstractMetaEntity,
-  }) : _httpClient = SentryHttpClient(client: http.Client()) {
-    auth0 = Auth0(
-        abstractSyncConstants.auth0Domain, abstractSyncConstants.auth0ClientId);
-  }
+  }) : _httpClient = SentryHttpClient(client: http.Client());
 
   // HTTP client wrapped with Sentry for automatic breadcrumbs / tracing
   final http.Client _httpClient;
 
   SqliteDatabase? get db => _db;
-
-  Future<void> login() async {
-    try {
-      final credentials = await auth0.webAuthentication().login();
-      _credentials = credentials;
-      await initDb(userId: credentials.user.sub);
-    } catch (e) {
-      _logError('Error logging in', error: e);
-    }
-  }
-
-  Future<void> logout() async {
-    await auth0.webAuthentication().logout();
-    _credentials = null;
-    await deinitDb();
-  }
 
   // ---------------------------------------------------------------------------
   // Logging helpers that respect the host application's Sentry setup. Calls are
@@ -222,11 +202,10 @@ class BackendNotifier extends ChangeNotifier {
   }) async {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
-    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
-        .replace(queryParameters: q);
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data').replace(queryParameters: q);
     final response = await _httpClient.get(
       uri,
-      headers: {'Authorization': 'Bearer ${_credentials!.accessToken}'},
+      headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -341,7 +320,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         uri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${_credentials!.accessToken}',
+          'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
         },
         body: jsonEncode({
           'name': table['entity_name'],
@@ -400,7 +379,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     try {
       final request = http.Request('GET', uri)
         ..headers['Accept'] = 'text/event-stream'
-        ..headers['Authorization'] = 'Bearer ${_credentials!.accessToken}';
+        ..headers['Authorization'] =
+            'Bearer ${abstractSyncConstants.authToken}';
       final res = await _httpClient.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;
