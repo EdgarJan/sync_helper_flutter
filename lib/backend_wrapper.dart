@@ -196,12 +196,12 @@ class BackendNotifier extends ChangeNotifier {
 
   Future<void> _fetchData({
     required String name,
-    String? lastReceivedLts,
+    int? lastReceivedLts,
     required int pageSize,
     required Future<void> Function(Map<String, dynamic>) onData,
   }) async {
     final q = {'name': name, 'pageSize': pageSize.toString()};
-    if (lastReceivedLts != null) q['lts'] = lastReceivedLts;
+    if (lastReceivedLts != null) q['lts'] = lastReceivedLts.toString();
     final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data').replace(queryParameters: q);
     final response = await _httpClient.get(
       uri,
@@ -233,7 +233,7 @@ class BackendNotifier extends ChangeNotifier {
       for (var table in tables) {
         int page = 1000;
         bool more = true;
-        String? lts = table['last_received_lts']?.toString() ?? '';
+        int? lts = table['last_received_lts'] as int?;
         while (more && _db != null) {
           await _fetchData(
             name: table['entity_name'],
@@ -271,7 +271,7 @@ INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
                 final data = List<Map<String, dynamic>>.from(resp['data']);
-                _logDebug('Last lts in response: ${data.last['lts']}');
+                _logDebug('Last LTS in response: ${data.last['lts']}');
                 final batch = data
                     .map<List<Object?>>(
                       (e) => cols.map<Object?>((c) => e[c]).toList(),
@@ -285,7 +285,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 if (data.length < page) {
                   more = false;
                 } else {
-                  lts = data.last['lts'];
+                  lts = data.last['lts'] as int?;
                 }
               });
             },
