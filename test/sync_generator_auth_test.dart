@@ -15,12 +15,19 @@ Future<void> main() async {
 
   // Helper to start the mock server before the tests and stop it afterwards.
   setUpAll(() async {
-    final dartExecutable = Platform.resolvedExecutable;
+
+
+
     serverProcess = await Process.start(
-      dartExecutable,
+      'dart',
       ['bin/mock_sync_server.dart', '0', correctToken],
       workingDirectory: Directory.current.path,
     );
+
+
+
+
+
 
     // Wait until the server prints its listening message.
     // Wait until the mock server prints its listening banner so we know it is
@@ -49,14 +56,14 @@ Future<void> main() async {
   test(
       'sync_generator exits with code 1 when server returns 401 due to invalid token',
       () async {
-    final dartExecutable = Platform.resolvedExecutable;
+
 
     if (port == null) {
       throw StateError('Mock server did not start');
     }
 
     final generatorResult = await Process.run(
-      dartExecutable,
+      'dart',
       [
         'bin/sync_generator.dart',
         'http://localhost:${port!}',
