@@ -21,7 +21,7 @@ void main() {
       await pregeneratedFile.delete();
     }
 
-    final dartExecutable = Platform.resolvedExecutable;
+    final dartExecutable = 'dart';
 
     // Start the mock server on a random free port (pass 0).
     serverProcess = await Process.start(
@@ -58,7 +58,7 @@ void main() {
   });
 
   test('sync_generator produces pregenerated.dart for hard_app', () async {
-    final dartExecutable = Platform.resolvedExecutable;
+    final dartExecutable = 'dart';
 
     final result = await Process.run(
       dartExecutable,

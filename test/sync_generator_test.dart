@@ -7,7 +7,7 @@ void main() {
       () async {
     // Use the same Dart executable that is running the tests to execute the
     // script. This is more reliable than assuming `dart` is on PATH.
-    final dartExecutable = Platform.resolvedExecutable;
+    final dartExecutable = 'dart';
 
     // Run the script located in the `bin` directory without any CLI arguments.
     final result = await Process.run(
