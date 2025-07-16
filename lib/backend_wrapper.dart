@@ -308,56 +308,59 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
   Future<void> _sendUnsynced({required ResultSet syncingTables}) async {
     final db = _db!;
-    bool retry = false;
-    for (var table in syncingTables) {
-      final rows = await db.getAll(
-        'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
-      );
-      if (rows.isEmpty) continue;
-      final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
-      _logDebug('Sending unsynced data for ${table['entity_name']}');
-      final res = await _httpClient.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
-        },
-        body: jsonEncode({
-          'name': table['entity_name'],
-          'data': jsonEncode(rows),
-        }),
-      );
-      if (res.statusCode != 200) {
-        retry = true;
-        break;
-      }
-      await db.writeTransaction((tx) async {
-        //todo: not sure if this most efficient way
-        final rows2 = await tx.getAll(
+    bool retry;
+    do {
+      retry = false;
+      for (var table in syncingTables) {
+        final rows = await db.getAll(
           'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
         );
-        if (DeepCollectionEquality().equals(rows, rows2)) {
-          await tx.execute(
-            'delete from ${table['entity_name']} where is_unsynced = 1 and is_deleted = 1',
-          );
-          await tx.execute(
-            'update ${table['entity_name']} set is_unsynced = 0 where is_unsynced = 1',
-          );
-          _logDebug(
-            'Unsynced data for ${table['entity_name']} sent and marked as synced',
-          );
-        } else {
-          _logWarning(
-            'Unsynced data for ${table['entity_name']} became unsynced again after sending, retrying sync',
-          );
+        if (rows.isEmpty) continue;
+        final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
+        _logDebug('Sending unsynced data for ${table['entity_name']}');
+        final res = await _httpClient.post(
+          uri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
+          },
+          body: jsonEncode({
+            'name': table['entity_name'],
+            'data': jsonEncode(rows),
+          }),
+        );
+        if (res.statusCode != 200) {
+          _logWarning('Failed to send unsynced data for ${table['entity_name']}, status: ${res.statusCode}');
           retry = true;
+          break;
         }
-      });
-      if (retry) {
-        await _sendUnsynced(syncingTables: syncingTables);
-        break;
+        await db.writeTransaction((tx) async {
+          //todo: not sure if this most efficient way
+          final rows2 = await tx.getAll(
+            'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
+          );
+          if (DeepCollectionEquality().equals(rows, rows2)) {
+            await tx.execute(
+              'delete from ${table['entity_name']} where is_unsynced = 1 and is_deleted = 1',
+            );
+            await tx.execute(
+              'update ${table['entity_name']} set is_unsynced = 0 where is_unsynced = 1',
+            );
+            _logDebug(
+              'Unsynced data for ${table['entity_name']} sent and marked as synced',
+            );
+          } else {
+            _logWarning(
+              'Unsynced data for ${table['entity_name']} became unsynced again after sending, retrying sync',
+            );
+            retry = true;
+          }
+        });
+        if (retry) {
+          break;
+        }
       }
-    }
+    } while (retry);
   }
 
   Future<void> _startSyncer() async {
