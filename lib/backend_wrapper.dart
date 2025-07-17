@@ -38,6 +38,7 @@ class BackendNotifier extends ChangeNotifier {
   final http.Client _httpClient;
 
   SqliteDatabase? get db => _db;
+  bool get sseConnected => _sseConnected;
 
   // ---------------------------------------------------------------------------
   // Logging helpers that respect the host application's Sentry setup. Calls are
@@ -375,6 +376,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     void handleError() {
       _logWarning('SSE connection error, retrying in 5 seconds');
       _sseConnected = false;
+      notifyListeners();
       _eventSubscription?.cancel();
       Future.delayed(const Duration(seconds: 5), _startSyncer);
     }
@@ -387,6 +389,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       final res = await _httpClient.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;
+        notifyListeners();
         _logDebug('SSE connection established');
         _logDebug('Starting full sync after SSE connection');
         await fullSync();
