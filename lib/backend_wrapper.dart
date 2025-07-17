@@ -37,6 +37,7 @@ class BackendNotifier extends ChangeNotifier {
   // HTTP client wrapped with Sentry for automatic breadcrumbs / tracing
   final http.Client _httpClient;
 
+  bool get isSseConnected => _sseConnected;
   SqliteDatabase? get db => _db;
 
   // ---------------------------------------------------------------------------
