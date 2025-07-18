@@ -3,20 +3,19 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:package_info_plus/package_info_plus.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqlite_async/sqlite3.dart';
 import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
 import 'package:sync_helper_flutter/sync_abstract.dart';
 import 'package:uuid/uuid.dart';
-
-// Sentry
-import 'package:sentry_flutter/sentry_flutter.dart';
 
 class BackendNotifier extends ChangeNotifier {
   final AbstractPregeneratedMigrations abstractPregeneratedMigrations;
@@ -84,8 +83,91 @@ class BackendNotifier extends ChangeNotifier {
     }
   }
 
+  Future<void> _initAndApplyDeviceInfo() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final deviceInfo = DeviceInfoPlugin();
+      Map<String, dynamic> deviceData = {};
+      String? osName;
+
+      if (kIsWeb) {
+        final webInfo = await deviceInfo.webBrowserInfo;
+        osName = 'Web';
+        deviceData = {
+          'browser': webInfo.browserName.name,
+          'appVersion': webInfo.appVersion,
+          'platform': webInfo.platform,
+          'vendor': webInfo.vendor,
+        };
+      } else {
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          osName = 'Android';
+          deviceData = {
+            'version.release': androidInfo.version.release,
+            'version.sdkInt': androidInfo.version.sdkInt,
+            'manufacturer': androidInfo.manufacturer,
+            'model': androidInfo.model,
+            'isPhysicalDevice': androidInfo.isPhysicalDevice,
+          };
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          osName = 'iOS';
+          deviceData = {
+            'systemVersion': iosInfo.systemVersion,
+            'utsname.machine': iosInfo.utsname.machine,
+            'isPhysicalDevice': iosInfo.isPhysicalDevice,
+          };
+        } else if (Platform.isLinux) {
+          final linuxInfo = await deviceInfo.linuxInfo;
+          osName = 'Linux';
+          deviceData = {
+            'name': linuxInfo.name,
+            'version': linuxInfo.version,
+            'versionId': linuxInfo.versionId,
+            'prettyName': linuxInfo.prettyName,
+          };
+        } else if (Platform.isMacOS) {
+          final macOsInfo = await deviceInfo.macOsInfo;
+          osName = 'macOS';
+          deviceData = {
+            'osRelease': macOsInfo.osRelease,
+            'model': macOsInfo.model,
+            'arch': macOsInfo.arch,
+            'hostName': macOsInfo.hostName,
+          };
+        } else if (Platform.isWindows) {
+          final windowsInfo = await deviceInfo.windowsInfo;
+          osName = 'Windows';
+          deviceData = {
+            'productName': windowsInfo.productName,
+            'buildNumber': windowsInfo.buildNumber,
+            'displayVersion': windowsInfo.displayVersion,
+          };
+        }
+      }
+
+      await Sentry.configureScope((scope) async {
+        scope.setContexts('app', {
+          'name': packageInfo.appName,
+          'version': packageInfo.version,
+          'buildNumber': packageInfo.buildNumber,
+          'packageName': packageInfo.packageName,
+        });
+        scope.setContexts('device', deviceData);
+        if (osName != null) {
+          scope.setTag('os', osName);
+        }
+      });
+    } catch (e, stackTrace) {
+      _logError('Failed to set Sentry device info',
+          error: e, stackTrace: stackTrace);
+    }
+  }
+
   Future<void> initDb({required String userId}) async {
     this.userId = userId;
+    await _initAndApplyDeviceInfo();
     final tempDb = await _openDatabase();
     await abstractPregeneratedMigrations.migrations.migrate(tempDb);
     _db = tempDb;
@@ -203,7 +285,8 @@ class BackendNotifier extends ChangeNotifier {
   }) async {
     final q = {'name': name, 'pageSize': pageSize.toString()};
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts.toString();
-    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data').replace(queryParameters: q);
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
+        .replace(queryParameters: q);
     final response = await _httpClient.get(
       uri,
       headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
@@ -331,7 +414,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           }),
         );
         if (res.statusCode != 200) {
-          _logWarning('Failed to send unsynced data for ${table['entity_name']}, status: ${res.statusCode}');
+          _logWarning(
+              'Failed to send unsynced data for ${table['entity_name']}, status: ${res.statusCode}');
           retry = true;
           break;
         }
