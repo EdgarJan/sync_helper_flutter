@@ -36,6 +36,15 @@ class BackendNotifier extends ChangeNotifier {
   // HTTP client wrapped with Sentry for automatic breadcrumbs / tracing
   final http.Client _httpClient;
 
+  // Get Firebase auth token (required)
+  Future<String> _getAuthToken() async {
+    final firebaseToken = await abstractSyncConstants.getFirebaseToken();
+    if (firebaseToken.isEmpty) {
+      throw Exception('Firebase auth token is required but not available');
+    }
+    return firebaseToken;
+  }
+
   SqliteDatabase? get db => _db;
   bool get sseConnected => _sseConnected;
 
@@ -287,9 +296,13 @@ class BackendNotifier extends ChangeNotifier {
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts.toString();
     final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
         .replace(queryParameters: q);
+    
+    // Get auth token (Firebase or fallback)
+    final authToken = await _getAuthToken();
+    
     final response = await _httpClient.get(
       uri,
-      headers: {'Authorization': 'Bearer ${abstractSyncConstants.authToken}'},
+      headers: {'Authorization': 'Bearer $authToken'},
     );
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
@@ -402,11 +415,15 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         if (rows.isEmpty) continue;
         final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
         _logDebug('Sending unsynced data for ${table['entity_name']}');
+        
+        // Get auth token (Firebase or fallback)
+        final authToken = await _getAuthToken();
+        
         final res = await _httpClient.post(
           uri,
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ${abstractSyncConstants.authToken}',
+            'Authorization': 'Bearer $authToken',
           },
           body: jsonEncode({
             'name': table['entity_name'],
@@ -466,10 +483,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     }
 
     try {
+      // Get auth token (Firebase or fallback)
+      final authToken = await _getAuthToken();
+      
       final request = http.Request('GET', uri)
         ..headers['Accept'] = 'text/event-stream'
-        ..headers['Authorization'] =
-            'Bearer ${abstractSyncConstants.authToken}';
+        ..headers['Authorization'] = 'Bearer $authToken';
       final res = await _httpClient.send(request);
       if (res.statusCode == 200) {
         _sseConnected = true;

@@ -18,6 +18,8 @@ dependencies:
   # application that depends on this library. We only use the APIs.
   sentry_flutter: 9.4.1
   device_info_plus: ^11.5.0
+  # Optional Firebase Auth support
+  firebase_auth: ^5.3.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
