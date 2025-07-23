@@ -144,6 +144,9 @@ void main(List<String> args) async {
     buffer.writeln("    ");
     buffer.writeln("    try {");
     buffer.writeln("      final token = await user.getIdToken();");
+    buffer.writeln("      if (token == null) {");
+    buffer.writeln("        throw Exception('Firebase token is null');");
+    buffer.writeln("      }");
     buffer.writeln("      return token;");
     buffer.writeln("    } catch (e) {");
     buffer.writeln("      throw Exception('Failed to get Firebase ID token: \$e');");
