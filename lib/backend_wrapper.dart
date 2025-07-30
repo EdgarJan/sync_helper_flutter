@@ -406,58 +406,99 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
   Future<void> _sendUnsynced({required ResultSet syncingTables}) async {
     final db = _db!;
     bool retry;
+    const int batchSize = 100; // Internal implementation detail
+    
     do {
       retry = false;
       for (var table in syncingTables) {
-        final rows = await db.getAll(
-          'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
-        );
-        if (rows.isEmpty) continue;
-        final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
-        _logDebug('Sending unsynced data for ${table['entity_name']}');
+        // Process in batches using LIMIT and OFFSET
+        int offset = 0;
+        bool hasMoreData = true;
         
-        // Get auth token (Firebase or fallback)
-        final authToken = await _getAuthToken();
-        
-        final res = await _httpClient.post(
-          uri,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $authToken',
-          },
-          body: jsonEncode({
-            'name': table['entity_name'],
-            'data': jsonEncode(rows),
-          }),
-        );
-        if (res.statusCode != 200) {
-          _logWarning(
-              'Failed to send unsynced data for ${table['entity_name']}, status: ${res.statusCode}');
-          retry = true;
-          break;
-        }
-        await db.writeTransaction((tx) async {
-          //todo: not sure if this most efficient way
-          final rows2 = await tx.getAll(
-            'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1',
+        while (hasMoreData && !retry) {
+          // Fetch a batch of unsynced rows
+          final rows = await db.getAll(
+            'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
           );
-          if (DeepCollectionEquality().equals(rows, rows2)) {
-            await tx.execute(
-              'delete from ${table['entity_name']} where is_unsynced = 1 and is_deleted = 1',
-            );
-            await tx.execute(
-              'update ${table['entity_name']} set is_unsynced = 0 where is_unsynced = 1',
-            );
-            _logDebug(
-              'Unsynced data for ${table['entity_name']} sent and marked as synced',
-            );
-          } else {
-            _logWarning(
-              'Unsynced data for ${table['entity_name']} became unsynced again after sending, retrying sync',
-            );
-            retry = true;
+          
+          if (rows.isEmpty) {
+            hasMoreData = false;
+            continue;
           }
-        });
+          
+          final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
+          _logDebug('Sending unsynced data batch for ${table['entity_name']}: ${rows.length} rows (offset: $offset)');
+          
+          // Get auth token (Firebase or fallback)
+          final authToken = await _getAuthToken();
+          
+          final res = await _httpClient.post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $authToken',
+            },
+            body: jsonEncode({
+              'name': table['entity_name'],
+              'data': jsonEncode(rows),
+            }),
+          );
+          
+          if (res.statusCode != 200) {
+            _logWarning(
+                'Failed to send unsynced data batch for ${table['entity_name']}, status: ${res.statusCode}');
+            retry = true;
+            break;
+          }
+          
+          // Mark only the successfully sent rows as synced
+          await db.writeTransaction((tx) async {
+            // Verify the same rows still exist and haven't changed
+            final rows2 = await tx.getAll(
+              'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
+            );
+            
+            if (DeepCollectionEquality().equals(rows, rows2)) {
+              // Extract IDs from the sent rows
+              final ids = rows.map((row) => row['id']).toList();
+              final idPlaceholders = List.filled(ids.length, '?').join(', ');
+              
+              // Delete rows that are marked for deletion
+              await tx.execute(
+                'delete from ${table['entity_name']} where id IN ($idPlaceholders) and is_unsynced = 1 and is_deleted = 1',
+                ids,
+              );
+              
+              // Mark remaining rows as synced
+              await tx.execute(
+                'update ${table['entity_name']} set is_unsynced = 0 where id IN ($idPlaceholders) and is_unsynced = 1',
+                ids,
+              );
+              
+              _logDebug(
+                'Batch of ${rows.length} unsynced rows for ${table['entity_name']} sent and marked as synced',
+              );
+            } else {
+              _logWarning(
+                'Unsynced data batch for ${table['entity_name']} changed during sending, retrying sync',
+              );
+              retry = true;
+            }
+          });
+          
+          if (retry) {
+            break;
+          }
+          
+          // If we got fewer rows than the batch size, we've reached the end
+          if (rows.length < batchSize) {
+            hasMoreData = false;
+          } else {
+            // Move to the next batch
+            offset += batchSize;
+          }
+        }
+        
         if (retry) {
           break;
         }
