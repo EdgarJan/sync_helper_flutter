@@ -1,5 +1,5 @@
 name: sync_helper_flutter
-version: 1.4.0
+version: 1.4.1
 environment:
   # The only constraint is on the Flutter framework version. Any Dart SDK
   # version compatible with the selected Flutter version will be used. A

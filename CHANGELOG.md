@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.1] - 2025-01-30
+
+### Added
+- `isSyncing` getter to expose full sync status
+- Notifies listeners when sync starts and completes
+
 ## [1.4.0] - 2025-01-30
 
 ### Added

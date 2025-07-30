@@ -47,6 +47,7 @@ class BackendNotifier extends ChangeNotifier {
 
   SqliteDatabase? get db => _db;
   bool get sseConnected => _sseConnected;
+  bool get isSyncing => fullSyncStarted;
 
   // ---------------------------------------------------------------------------
   // Logging helpers that respect the host application's Sentry setup. Calls are
@@ -324,6 +325,7 @@ class BackendNotifier extends ChangeNotifier {
       return;
     }
     fullSyncStarted = true;
+    notifyListeners();
     try {
       final tables = await _db!.getAll('select * from syncing_table');
       await _sendUnsynced(syncingTables: tables);
@@ -394,6 +396,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     }
 
     fullSyncStarted = false;
+    notifyListeners();
 
     if (repeat) {
       repeat = false;
