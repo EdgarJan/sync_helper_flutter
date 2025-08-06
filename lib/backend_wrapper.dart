@@ -293,7 +293,11 @@ class BackendNotifier extends ChangeNotifier {
     required int pageSize,
     required Future<void> Function(Map<String, dynamic>) onData,
   }) async {
-    final q = {'name': name, 'pageSize': pageSize.toString()};
+    final q = {
+      'name': name, 
+      'pageSize': pageSize.toString(),
+      'app_id': abstractSyncConstants.appId,  // Include app_id
+    };
     if (lastReceivedLts != null) q['lts'] = lastReceivedLts.toString();
     final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
         .replace(queryParameters: q);
@@ -429,7 +433,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             continue;
           }
           
-          final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data');
+          final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
+              .replace(queryParameters: {'app_id': abstractSyncConstants.appId});  // Include app_id
           _logDebug('Sending unsynced data batch for ${table['entity_name']}: ${rows.length} rows (offset: $offset)');
           
           // Get auth token (Firebase or fallback)
@@ -515,7 +520,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       _logDebug('SSE syncer already connected, skipping start');
       return;
     }
-    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/events');
+    final uri = Uri.parse('${abstractSyncConstants.serverUrl}/events')
+        .replace(queryParameters: {'app_id': abstractSyncConstants.appId});  // Include app_id
     _logDebug('Connecting to SSE at $uri');
     // Use Sentry-enabled HTTP client
     void handleError() {

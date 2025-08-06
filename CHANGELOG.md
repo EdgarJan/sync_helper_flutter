@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.2] - 2025-01-06
+
+### Added
+- Include `app_id` query parameter in all server requests (/data, /events)
+- Enables proper multi-tenant isolation on the server side
+
 ## [1.4.1] - 2025-01-30
 
 ### Added
