@@ -181,8 +181,67 @@ class BackendNotifier extends ChangeNotifier {
     final tempDb = await _openDatabase();
     await abstractPregeneratedMigrations.migrations.migrate(tempDb);
     _db = tempDb;
+    
+    // Register archive table with latest LTS from server to avoid syncing old archives
+    await _registerTable('archive');
+    
     _startSyncer();
     notifyListeners();
+  }
+  
+  Future<void> _registerTable(String tableName) async {
+    // Check if table is already registered
+    final existing = await _db!.getOptional(
+      'SELECT last_received_lts FROM syncing_table WHERE entity_name = ?',
+      [tableName],
+    );
+    
+    if (existing != null) {
+      _logDebug('Table $tableName already registered with LTS ${existing['last_received_lts']}');
+      return;
+    }
+    
+    // Try to get latest LTS from server with retries
+    int? latestLts;
+    int retries = 3;
+    
+    while (retries > 0 && latestLts == null) {
+      try {
+        final token = await _getAuthToken();
+        final response = await _httpClient.get(
+          Uri.parse('${abstractSyncConstants.serverUrl}/latest-lts?name=$tableName'),
+          headers: {
+            'Authorization': 'Bearer $token',
+          },
+        );
+        
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          latestLts = data['lts'] as int?;
+          _logDebug('Got latest LTS for $tableName: $latestLts');
+        } else if (response.statusCode == 403 || response.statusCode == 404) {
+          // Table doesn't exist on server yet, use 0
+          latestLts = 0;
+          _logDebug('Table $tableName not found on server, using LTS 0');
+        } else {
+          throw Exception('Failed to get latest LTS: ${response.statusCode}');
+        }
+      } catch (e) {
+        retries--;
+        _logWarning('Failed to get latest LTS for $tableName, retries left: $retries');
+        if (retries > 0) {
+          await Future.delayed(Duration(seconds: 2));
+        }
+      }
+    }
+    
+    // Register table with the LTS we got (or 0 if all retries failed)
+    final ltsToUse = latestLts ?? 0;
+    await _db!.execute(
+      'INSERT INTO syncing_table (entity_name, last_received_lts) VALUES (?, ?)',
+      [tableName, ltsToUse],
+    );
+    _logDebug('Registered table $tableName with initial LTS $ltsToUse');
   }
 
   Future<void> deinitDb() async {
@@ -198,19 +257,8 @@ class BackendNotifier extends ChangeNotifier {
     notifyListeners();
   }
 
-  Stream<List> watch({
-    required String sql,
-    required List<String> tables,
-    String where = '',
-    String order = '',
-  }) {
-    final defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
-    final _where = where.isNotEmpty ? ' AND ($where)' : '';
-    final _order = order.isNotEmpty ? ' ORDER BY $order' : '';
-    return _db!.watch(
-      sql + defaultWhere + _where + _order,
-      triggerOnTables: tables,
-    );
+  Stream<List> watch(String sql, {List<String>? triggerOnTables}) {
+    return _db!.watch(sql, triggerOnTables: triggerOnTables);
   }
 
   Future<ResultSet> getAll({
@@ -218,10 +266,9 @@ class BackendNotifier extends ChangeNotifier {
     String where = '',
     String order = '',
   }) {
-    final defaultWhere = ' where (is_deleted != 1 OR is_deleted IS NULL) ';
-    final _where = where.isNotEmpty ? ' AND ($where)' : '';
+    final _where = where.isNotEmpty ? ' WHERE $where' : '';
     final _order = order.isNotEmpty ? ' ORDER BY $order' : '';
-    return _db!.getAll(sql + defaultWhere + _where + _order);
+    return _db!.getAll(sql + _where + _order);
   }
 
   Future<void> write({required String tableName, required Map data}) async {
@@ -244,7 +291,7 @@ class BackendNotifier extends ChangeNotifier {
 
   Future<void> delete({required String tableName, required String id}) async {
     await _db!.execute(
-      'UPDATE $tableName SET is_unsynced = 1, is_deleted = 1 WHERE id = ?',
+      'DELETE FROM $tableName WHERE id = ?',
       [id],
     );
     await fullSync();
@@ -471,11 +518,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
               final ids = rows.map((row) => row['id']).toList();
               final idPlaceholders = List.filled(ids.length, '?').join(', ');
               
-              // Delete rows that are marked for deletion
-              await tx.execute(
-                'delete from ${table['entity_name']} where id IN ($idPlaceholders) and is_unsynced = 1 and is_deleted = 1',
-                ids,
-              );
+              // No longer need to delete soft-deleted rows since we don't use is_deleted anymore
               
               // Mark remaining rows as synced
               await tx.execute(
