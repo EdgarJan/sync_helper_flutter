@@ -44,10 +44,6 @@ Future<void> main(List<String> args) async {
             'type': 'integer'
           },
           {
-            'name': 'is_deleted',
-            'type': 'integer'
-          },
-          {
             'name': 'is_unsynced',
             'type': 'integer'
           },
@@ -109,11 +105,11 @@ Future<void> main(List<String> args) async {
       'version': 1,
       'client_create': [
         {
-          'sql': 'CREATE TABLE IF NOT EXISTS "applications" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_deleted" INTEGER,\n  "is_unsynced" INTEGER,\n  "version" TEXT\n);',
+          'sql': 'CREATE TABLE IF NOT EXISTS "applications" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_unsynced" INTEGER,\n  "version" TEXT\n);',
           'type': 'execute'
         },
         {
-          'sql': 'CREATE TABLE IF NOT EXISTS "schedules" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_deleted" INTEGER,\n  "is_unsynced" INTEGER,\n  "id_name" TEXT,\n  "name" TEXT,\n  "comment" TEXT,\n  "tags" TEXT,\n  "delay" TEXT,\n  "delayDate" TEXT,\n  "priority" INTEGER,\n  "cts" TEXT\n);',
+          'sql': 'CREATE TABLE IF NOT EXISTS "schedules" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_unsynced" INTEGER,\n  "id_name" TEXT,\n  "name" TEXT,\n  "comment" TEXT,\n  "tags" TEXT,\n  "delay" TEXT,\n  "delayDate" TEXT,\n  "priority" INTEGER,\n  "cts" TEXT\n);',
           'type': 'execute'
         },
         {
@@ -131,11 +127,11 @@ Future<void> main(List<String> args) async {
       ],
       'client_migration': [
         {
-          'sql': 'CREATE TABLE IF NOT EXISTS "applications" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_deleted" INTEGER,\n  "is_unsynced" INTEGER,\n  "version" TEXT\n);',
+          'sql': 'CREATE TABLE IF NOT EXISTS "applications" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_unsynced" INTEGER,\n  "version" TEXT\n);',
           'type': 'execute'
         },
         {
-          'sql': 'CREATE TABLE IF NOT EXISTS "schedules" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_deleted" INTEGER,\n  "is_unsynced" INTEGER,\n  "id_name" TEXT,\n  "name" TEXT,\n  "comment" TEXT,\n  "tags" TEXT,\n  "delay" TEXT,\n  "delayDate" TEXT,\n  "priority" INTEGER,\n  "cts" TEXT\n);',
+          'sql': 'CREATE TABLE IF NOT EXISTS "schedules" (\n  "id" TEXT PRIMARY KEY,\n  "lts" INTEGER,\n  "is_unsynced" INTEGER,\n  "id_name" TEXT,\n  "name" TEXT,\n  "comment" TEXT,\n  "tags" TEXT,\n  "delay" TEXT,\n  "delayDate" TEXT,\n  "priority" INTEGER,\n  "cts" TEXT\n);',
           'type': 'execute'
         },
         {
@@ -168,10 +164,6 @@ Future<void> main(List<String> args) async {
               },
               {
                 'name': 'lts',
-                'type': 'integer'
-              },
-              {
-                'name': 'is_deleted',
                 'type': 'integer'
               },
               {

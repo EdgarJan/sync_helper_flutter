@@ -290,10 +290,37 @@ class BackendNotifier extends ChangeNotifier {
   }
 
   Future<void> delete({required String tableName, required String id}) async {
-    await _db!.execute(
-      'DELETE FROM $tableName WHERE id = ?',
-      [id],
-    );
+    try {
+      await _db!.writeTransaction((tx) async {
+        // Read the row to archive before deletion
+        final row = await tx.getOptional(
+          'SELECT * FROM $tableName WHERE id = ?',
+          [id],
+        );
+
+        if (row != null) {
+          // Create an archive record with the full original row payload
+          final archiveId = const Uuid().v4();
+          final archiveData = jsonEncode(row);
+          await tx.execute(
+            'INSERT INTO archive (id, table_name, data, data_id, is_unsynced) VALUES (?, ?, ?, ?, 1)',
+            [archiveId, tableName, archiveData, id],
+          );
+          _logDebug('Archived row before delete: $tableName/$id as archive/$archiveId');
+        } else {
+          _logWarning('Delete requested but row not found: $tableName/$id');
+        }
+
+        // Perform the actual delete locally
+        await tx.execute(
+          'DELETE FROM $tableName WHERE id = ?',
+          [id],
+        );
+      });
+    } catch (e, st) {
+      _logError('Failed to archive+delete $tableName/$id', error: e, stackTrace: st);
+      rethrow;
+    }
     await fullSync();
   }
 
@@ -407,31 +434,56 @@ class BackendNotifier extends ChangeNotifier {
                   return;
                 }
                 final name = table['entity_name'];
-                final pk = 'id';
-                final cols = abstractMetaEntity
-                    .syncableColumnsList[table['entity_name']]!;
-                final placeholders = List.filled(cols.length, '?').join(', ');
-                final updates = cols
-                    .where((c) => c != pk)
-                    .map((c) => '$c = excluded.$c')
-                    .join(', ');
-                final sql =
-                    '''
+                final data = List<Map<String, dynamic>>.from(resp['data']);
+                _logDebug('Last LTS in response: ${data.last['lts']}');
+
+                if (name == 'archive') {
+                  // Handle archive messages: delete referenced local rows and clear archive entries locally
+                  for (final row in data) {
+                    final targetTable = row['table_name'] as String?;
+                    final targetId = row['data_id'] as String?;
+                    final archiveRowId = row['id'] as String?;
+                    if (targetTable == null || targetId == null) {
+                      continue;
+                    }
+                    // Delete referenced data row locally (idempotent)
+                    await tx.execute('DELETE FROM ' + targetTable + ' WHERE id = ?', [targetId]);
+                    // Also remove handled archive row locally if present
+                    if (archiveRowId != null) {
+                      await tx.execute('DELETE FROM archive WHERE id = ?', [archiveRowId]);
+                    }
+                  }
+                  // Advance LTS for archive table
+                  await tx.execute(
+                    'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
+                    [data.last['lts'], name],
+                  );
+                } else {
+                  // Default upsert flow for regular tables
+                  final pk = 'id';
+                  final cols = abstractMetaEntity
+                      .syncableColumnsList[table['entity_name']]!;
+                  final placeholders = List.filled(cols.length, '?').join(', ');
+                  final updates = cols
+                      .where((c) => c != pk)
+                      .map((c) => '$c = excluded.$c')
+                      .join(', ');
+                  final sql =
+                      '''
 INSERT INTO $name (${cols.join(', ')}) VALUES ($placeholders)
 ON CONFLICT($pk) DO UPDATE SET $updates;
 ''';
-                final data = List<Map<String, dynamic>>.from(resp['data']);
-                _logDebug('Last LTS in response: ${data.last['lts']}');
-                final batch = data
-                    .map<List<Object?>>(
-                      (e) => cols.map<Object?>((c) => e[c]).toList(),
-                    )
-                    .toList();
-                await tx.executeBatch(sql, batch);
-                await tx.execute(
-                  'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
-                  [data.last['lts'], name],
-                );
+                  final batch = data
+                      .map<List<Object?>>(
+                        (e) => cols.map<Object?>((c) => e[c]).toList(),
+                      )
+                      .toList();
+                  await tx.executeBatch(sql, batch);
+                  await tx.execute(
+                    'UPDATE syncing_table SET last_received_lts = ? WHERE entity_name = ?',
+                    [data.last['lts'], name],
+                  );
+                }
                 if (data.length < page) {
                   more = false;
                 } else {
@@ -518,7 +570,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
               final ids = rows.map((row) => row['id']).toList();
               final idPlaceholders = List.filled(ids.length, '?').join(', ');
               
-              // No longer need to delete soft-deleted rows since we don't use is_deleted anymore
+              // No special handling needed for soft deletes
               
               // Mark remaining rows as synced
               await tx.execute(
