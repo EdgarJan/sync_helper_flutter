@@ -23,33 +23,45 @@ void main(List<String> args) async {
 
   String serverUrl = args[0];
   final targetAppId = args[1];
-  
-  // Prompt for Firebase token
-  stdout.write('Enter Firebase ID token (from authenticated user): ');
-  final authToken = stdin.readLineSync()?.trim();
-  
-  if (authToken == null || authToken.isEmpty) {
-    print('Error: Firebase token is required');
+
+  // Prompt for email and password
+  stdout.write('Enter email: ');
+  final email = stdin.readLineSync()?.trim();
+
+  if (email == null || email.isEmpty) {
+    print('Error: Email is required');
     exit(1);
   }
+
+  stdout.write('Enter password: ');
+  final password = stdin.readLineSync()?.trim();
+
+  if (password == null || password.isEmpty) {
+    print('Error: Password is required');
+    exit(1);
+  }
+
   final outputFilePath = 'pregenerated.dart';
 
   if (serverUrl.endsWith('/')) {
     serverUrl = serverUrl.substring(0, serverUrl.length - 1);
   }
 
-  final modelsUrl = Uri.parse('${serverUrl}/models');
+  final modelsUrl = Uri.parse('${serverUrl}/models?app_id=$targetAppId');
   final constantsServerUrl = args[0];
 
   try {
     print('Fetching data from: $modelsUrl');
-    final response = await http.get(
+    final response = await http.post(
       modelsUrl,
       headers: {
-        'Authorization': 'Bearer $authToken',
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
+      body: jsonEncode({
+        'email': email,
+        'password': password,
+      }),
     );
 
     print('Response status code: ${response.statusCode}');
