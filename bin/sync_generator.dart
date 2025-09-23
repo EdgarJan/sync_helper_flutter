@@ -138,7 +138,6 @@ void main(List<String> args) async {
     buffer.writeln("import 'dart:typed_data';");
     buffer.writeln("import 'dart:convert';");
     buffer.writeln("import 'package:sync_helper_flutter/sync_abstract.dart';");
-    buffer.writeln("import 'package:firebase_auth/firebase_auth.dart';");
     buffer.writeln();
 
     buffer.writeln('class SyncConstants extends AbstractSyncConstants {');
@@ -146,24 +145,6 @@ void main(List<String> args) async {
     buffer.writeln("  final String appId = '$targetAppId';");
     buffer.writeln("  @override");
     buffer.writeln("  final String serverUrl = '$constantsServerUrl';");
-    buffer.writeln("  ");
-    buffer.writeln("  @override");
-    buffer.writeln("  Future<String> getFirebaseToken() async {");
-    buffer.writeln("    final user = FirebaseAuth.instance.currentUser;");
-    buffer.writeln("    if (user == null) {");
-    buffer.writeln("      throw Exception('User not authenticated with Firebase');");
-    buffer.writeln("    }");
-    buffer.writeln("    ");
-    buffer.writeln("    try {");
-    buffer.writeln("      final token = await user.getIdToken();");
-    buffer.writeln("      if (token == null) {");
-    buffer.writeln("        throw Exception('Firebase token is null');");
-    buffer.writeln("      }");
-    buffer.writeln("      return token;");
-    buffer.writeln("    } catch (e) {");
-    buffer.writeln("      throw Exception('Failed to get Firebase ID token: \$e');");
-    buffer.writeln("    }");
-    buffer.writeln("  }");
     buffer.writeln('}');
     buffer.writeln();
 

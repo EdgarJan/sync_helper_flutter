@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -38,8 +39,13 @@ class BackendNotifier extends ChangeNotifier {
 
   // Get Firebase auth token (required)
   Future<String> _getAuthToken() async {
-    final firebaseToken = await abstractSyncConstants.getFirebaseToken();
-    if (firebaseToken.isEmpty) {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw Exception('User not authenticated with Firebase');
+    }
+
+    final firebaseToken = await user.getIdToken();
+    if (firebaseToken == null || firebaseToken.isEmpty) {
       throw Exception('Firebase auth token is required but not available');
     }
     return firebaseToken;
