@@ -29,6 +29,3 @@ migrate_working_dir/
 .flutter-plugins
 .flutter-plugins-dependencies
 build/
-
-# Firebase API key configuration
-.firebase_api_key

@@ -2,50 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 
-// Function to load or prompt for Firebase API key
-Future<String> getFirebaseApiKey() async {
-  const configFile = '.firebase_api_key';
-  final file = File(configFile);
-
-  // Try to read from config file first
-  if (await file.exists()) {
-    try {
-      final apiKey = (await file.readAsString()).trim();
-      if (apiKey.isNotEmpty) {
-        print('Using Firebase API key from $configFile');
-        return apiKey;
-      }
-    } catch (e) {
-      print('Warning: Could not read $configFile: $e');
-    }
-  }
-
-  // Prompt for API key if not found
-  stdout.write('Enter Firebase Web API Key (found in Firebase Console > Project Settings): ');
-  final apiKey = stdin.readLineSync()?.trim();
-
-  if (apiKey == null || apiKey.isEmpty) {
-    print('Error: Firebase API key is required');
-    print('You can find it in Firebase Console > Project Settings > General > Web API Key');
-    exit(1);
-  }
-
-  // Ask if user wants to save it
-  stdout.write('Save API key for future use? (y/n): ');
-  final save = stdin.readLineSync()?.trim().toLowerCase();
-
-  if (save == 'y' || save == 'yes') {
-    try {
-      await file.writeAsString(apiKey);
-      print('API key saved to $configFile');
-    } catch (e) {
-      print('Warning: Could not save API key: $e');
-    }
-  }
-
-  return apiKey;
-}
-
 void main(List<String> args) async {
   const requiredArgNames = ['server_url', 'app_id'];
 
@@ -67,92 +23,15 @@ void main(List<String> args) async {
 
   String serverUrl = args[0];
   final targetAppId = args[1];
-
-  // Get Firebase API key
-  final apiKey = await getFirebaseApiKey();
-
-  // Prompt for email and password
-  stdout.write('Enter email: ');
-  final email = stdin.readLineSync()?.trim();
-
-  if (email == null || email.isEmpty) {
-    print('Error: Email is required');
+  
+  // Prompt for Firebase token
+  stdout.write('Enter Firebase ID token (from authenticated user): ');
+  final authToken = stdin.readLineSync()?.trim();
+  
+  if (authToken == null || authToken.isEmpty) {
+    print('Error: Firebase token is required');
     exit(1);
   }
-
-  stdout.write('Enter password: ');
-  stdin.echoMode = false; // Hide password input
-  final password = stdin.readLineSync()?.trim();
-  stdin.echoMode = true;
-  print(''); // New line after password
-
-  if (password == null || password.isEmpty) {
-    print('Error: Password is required');
-    exit(1);
-  }
-
-  String authToken;
-  try {
-    // Sign in with email and password using Firebase REST API
-    print('Authenticating with Firebase...');
-
-    final authUrl = Uri.parse(
-      'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=$apiKey'
-    );
-
-    final authResponse = await http.post(
-      authUrl,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-        'returnSecureToken': true,
-      }),
-    );
-
-    if (authResponse.statusCode != 200) {
-      final error = jsonDecode(authResponse.body);
-      final errorMessage = error['error']?['message'] ?? 'Unknown error';
-
-      switch (errorMessage) {
-        case 'EMAIL_NOT_FOUND':
-          print('Error: No user found for email: $email');
-          break;
-        case 'INVALID_PASSWORD':
-          print('Error: Invalid password');
-          break;
-        case 'USER_DISABLED':
-          print('Error: This user account has been disabled');
-          break;
-        case 'INVALID_EMAIL':
-          print('Error: Invalid email format');
-          break;
-        case 'MISSING_PASSWORD':
-          print('Error: Password is required');
-          break;
-        case 'TOO_MANY_ATTEMPTS_TRY_LATER':
-          print('Error: Too many failed login attempts. Please try again later');
-          break;
-        default:
-          print('Error: Authentication failed - $errorMessage');
-      }
-      exit(1);
-    }
-
-    final authData = jsonDecode(authResponse.body);
-    authToken = authData['idToken'];
-
-    if (authToken == null || authToken.isEmpty) {
-      print('Error: Failed to get authentication token');
-      exit(1);
-    }
-
-    print('Successfully authenticated as ${authData['email']}');
-  } catch (e) {
-    print('Error: Failed to authenticate - $e');
-    exit(1);
-  }
-
   final outputFilePath = 'pregenerated.dart';
 
   if (serverUrl.endsWith('/')) {
