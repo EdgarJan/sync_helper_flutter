@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 void main(List<String> args) async {
   const requiredArgNames = ['server_url', 'app_id'];
@@ -23,15 +25,71 @@ void main(List<String> args) async {
 
   String serverUrl = args[0];
   final targetAppId = args[1];
-  
-  // Prompt for Firebase token
-  stdout.write('Enter Firebase ID token (from authenticated user): ');
-  final authToken = stdin.readLineSync()?.trim();
-  
-  if (authToken == null || authToken.isEmpty) {
-    print('Error: Firebase token is required');
+
+  // Initialize Firebase
+  await Firebase.initializeApp();
+
+  // Prompt for email and password
+  stdout.write('Enter email: ');
+  final email = stdin.readLineSync()?.trim();
+
+  if (email == null || email.isEmpty) {
+    print('Error: Email is required');
     exit(1);
   }
+
+  stdout.write('Enter password: ');
+  stdin.echoMode = false; // Hide password input
+  final password = stdin.readLineSync()?.trim();
+  stdin.echoMode = true;
+  print(''); // New line after password
+
+  if (password == null || password.isEmpty) {
+    print('Error: Password is required');
+    exit(1);
+  }
+
+  String authToken;
+  try {
+    // Sign in with email and password
+    print('Authenticating with Firebase...');
+    final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    if (credential.user == null) {
+      print('Error: Authentication failed - no user returned');
+      exit(1);
+    }
+
+    // Get the ID token
+    authToken = await credential.user!.getIdToken() ?? '';
+
+    if (authToken.isEmpty) {
+      print('Error: Failed to get authentication token');
+      exit(1);
+    }
+
+    print('Successfully authenticated as ${credential.user!.email}');
+  } on FirebaseAuthException catch (e) {
+    if (e.code == 'user-not-found') {
+      print('Error: No user found for email: $email');
+    } else if (e.code == 'wrong-password') {
+      print('Error: Invalid password');
+    } else if (e.code == 'invalid-email') {
+      print('Error: Invalid email format');
+    } else if (e.code == 'user-disabled') {
+      print('Error: This user account has been disabled');
+    } else {
+      print('Error: Authentication failed - ${e.message}');
+    }
+    exit(1);
+  } catch (e) {
+    print('Error: Failed to authenticate - $e');
+    exit(1);
+  }
+
   final outputFilePath = 'pregenerated.dart';
 
   if (serverUrl.endsWith('/')) {
