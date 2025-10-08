@@ -81,7 +81,6 @@ void main() {
     expect(contents, contains("class SyncConstants"));
     expect(contents, contains("final String appId = '$appId'"));
     expect(contents, contains('CREATE TABLE IF NOT EXISTS "applications"'));
-    expect(contents, contains('class Applications'));
-    expect(contents, contains('class Schedules'));
+    expect(contents, contains('class MetaEntity'));
   });
 }

@@ -124,19 +124,9 @@ void main(List<String> args) async {
             )
             .toList();
 
-    final List<dynamic> unsyncableTables =
-        allTables
-            .where(
-              (t) =>
-                  t is Map<String, dynamic> ? t['is_syncable'] == false : false,
-            )
-            .toList();
-
     final buffer = StringBuffer();
 
     buffer.writeln("import 'package:sqlite_async/sqlite_async.dart';");
-    buffer.writeln("import 'dart:typed_data';");
-    buffer.writeln("import 'dart:convert';");
     buffer.writeln("import 'package:sync_helper_flutter/sync_abstract.dart';");
     buffer.writeln();
 
@@ -189,124 +179,6 @@ void main(List<String> args) async {
     buffer.writeln('    );');
     buffer.writeln('}');
     buffer.writeln();
-
-    final Set<String> generatedClasses = {};
-
-    for (final tableData in allTables) {
-      if (tableData is! Map<String, dynamic>) continue;
-      final tableName = tableData['name'] as String?;
-      final columns =
-          tableData['columns'] is List
-              ? List<dynamic>.from(tableData['columns'])
-              : [];
-
-      if (tableName == null || tableName.isEmpty || columns.isEmpty) continue;
-
-      final className = capitalize(tableName);
-      if (generatedClasses.contains(className)) continue;
-      generatedClasses.add(className);
-
-      buffer.writeln('class $className {');
-
-      final constructorParams = <String>[];
-      for (final columnData in columns) {
-        if (columnData is! Map<String, dynamic>) continue;
-        final columnName = columnData['name'] as String?;
-        final columnType = columnData['type'] as String?;
-
-        if (columnName == null ||
-            columnName.isEmpty ||
-            columnType == null ||
-            columnType.isEmpty)
-          continue;
-
-        final dartType = mapSqlTypeToDart(columnType);
-        final fieldName = columnName;
-        buffer.writeln('  final $dartType? $fieldName;');
-        constructorParams.add('this.$fieldName');
-      }
-
-      buffer.writeln();
-      buffer.writeln('  $className({');
-      for (final param in constructorParams) {
-        buffer.writeln('    $param,');
-      }
-      buffer.writeln('  });');
-      buffer.writeln();
-
-      buffer.writeln(
-        '  factory $className.fromMap(Map<String, dynamic> map) {',
-      );
-      buffer.writeln('    return $className(');
-      for (final columnData in columns) {
-        if (columnData is! Map<String, dynamic>) continue;
-        final columnName = columnData['name'] as String?;
-        final columnType = columnData['type'] as String?;
-
-        if (columnName == null ||
-            columnName.isEmpty ||
-            columnType == null ||
-            columnType.isEmpty)
-          continue;
-
-        final dartType = mapSqlTypeToDart(columnType);
-        final fieldName = columnName;
-        buffer.write("      $fieldName: map['$fieldName']");
-        if (dartType == 'DateTime') {
-          buffer.write(
-            " != null ? DateTime.tryParse(map['$fieldName'].toString()) : null",
-          );
-        } else if (dartType == 'bool') {
-          buffer.write(" == 1 || map['$fieldName'] == true");
-        } else if (dartType == 'Uint8List') {
-          buffer.write(
-            " is List<int> ? Uint8List.fromList(map['$fieldName']) : (map['$fieldName'] is String ? base64Decode(map['$fieldName']) : null)",
-          );
-        } else if (dartType != 'String' && dartType != 'Object') {
-          buffer.write(
-            " != null ? ($dartType.tryParse(map['$fieldName'].toString()) ?? (map['$fieldName'] is num ? (map['$fieldName'] as num).to${dartType == 'int' ? 'Int' : 'Double'}() : null)) : null",
-          );
-        } else if (dartType == 'String') {
-          buffer.write("?.toString()");
-        }
-        buffer.writeln(',');
-      }
-      buffer.writeln('    );');
-      buffer.writeln('  }');
-      buffer.writeln();
-
-      buffer.writeln('  Map<String, dynamic> toMap() {');
-      buffer.writeln('    return {');
-      for (final columnData in columns) {
-        if (columnData is! Map<String, dynamic>) continue;
-        final columnName = columnData['name'] as String?;
-        final columnType = columnData['type'] as String?;
-
-        if (columnName == null ||
-            columnName.isEmpty ||
-            columnType == null ||
-            columnType.isEmpty)
-          continue;
-
-        final fieldName = columnName;
-        final dartType = mapSqlTypeToDart(columnType);
-
-        buffer.write("      '$fieldName': $fieldName");
-        if (dartType == 'DateTime') {
-          buffer.write("?.toIso8601String()");
-        } else if (dartType == 'bool') {
-          buffer.write(" == true ? 1 : 0");
-        } else if (dartType == 'Uint8List') {
-          buffer.write(" != null ? base64Encode($fieldName!) : null");
-        }
-        buffer.writeln(',');
-      }
-      buffer.writeln('    };');
-      buffer.writeln('  }');
-
-      buffer.writeln('}');
-      buffer.writeln();
-    }
 
     buffer.writeln('class MetaEntity extends AbstractMetaEntity {');
     buffer.writeln('  @override');
@@ -455,51 +327,4 @@ void generateSqlExecutionCode(
 
 String escapeSqlString(String sql) {
   return sql.replaceAll("'''", "'''\"'\"'\"'''");
-}
-
-String capitalize(String s) {
-  if (s.isEmpty) return s;
-  return s
-      .split('_')
-      .map((part) {
-        if (part.isEmpty) return '';
-        return part[0].toUpperCase() + part.substring(1).toLowerCase();
-      })
-      .join('');
-}
-
-String mapSqlTypeToDart(String sqlType) {
-  final lowerSqlType = sqlType.toLowerCase().split('(')[0].trim();
-  switch (lowerSqlType) {
-    case 'text':
-    case 'varchar':
-    case 'char':
-    case 'clob':
-    case 'string':
-      return 'String';
-    case 'integer':
-    case 'int':
-    case 'bigint':
-    case 'smallint':
-    case 'tinyint':
-    case 'mediumint':
-      return 'int';
-    case 'real':
-    case 'double':
-    case 'float':
-    case 'numeric':
-    case 'decimal':
-      return 'double';
-    case 'blob':
-      return 'Uint8List';
-    case 'boolean':
-      return 'bool';
-    case 'date':
-    case 'datetime':
-    case 'timestamp':
-      return 'DateTime';
-    default:
-      print("Warning: Unknown SQL type '$sqlType'. Mapping to 'Object'.");
-      return 'Object';
-  }
 }
