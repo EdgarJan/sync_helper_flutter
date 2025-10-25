@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:collection/collection.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -232,7 +232,7 @@ class BackendNotifier extends ChangeNotifier {
   }) {
     final _where = where.isNotEmpty ? ' WHERE $where' : '';
     final _order = order.isNotEmpty ? ' ORDER BY $order' : '';
-    return _db!.getAll(sql + _where + _order, parameters);
+    return _db!.getAll(sql + _where + _order, parameters ?? []);
   }
 
   Future<void> write({required String tableName, required Map data}) async {

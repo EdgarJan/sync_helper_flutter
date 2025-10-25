@@ -12,8 +12,10 @@ dependencies:
   http: 1.5.0
   sqlite_async: 0.12.1
   path_provider: 2.1.5
+  path: 1.9.1
   uuid: 4.5.1
   package_info_plus: 9.0.0
+  collection: 1.19.1
   # Sentry for error monitoring & logging – SDK will be initialized by the
   # application that depends on this library. We only use the APIs.
   sentry_flutter: 9.6.0
