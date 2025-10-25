@@ -9,19 +9,24 @@ class Logger {
       final stack = StackTrace.current.toString();
       final lines = stack.split('\n');
 
-      // Skip first 3 lines: current, _getCallerInfo, log/debug/info/warn/error method
-      if (lines.length > 3) {
-        final callerLine = lines[3];
+      // Pattern to match stack trace line with file location
+      // Matches both: "(package:app/file.dart:123:45)" and "(file:///path/file.dart:123:45)"
+      final pattern = RegExp(r'\(([^:]+):(\d+):\d+\)');
 
-        // Extract file:line from stack trace
-        // Format: "#3      ClassName.methodName (package:app/file.dart:123:45)"
-        final match = RegExp(r'\(([^:]+):(\d+):\d+\)').firstMatch(callerLine);
+      // Skip lines until we find a caller that's not from logger.dart itself
+      for (int i = 0; i < lines.length; i++) {
+        final match = pattern.firstMatch(lines[i]);
         if (match != null) {
           final fullPath = match.group(1) ?? '';
           final line = match.group(2) ?? '?';
 
-          // Extract just filename from package path
-          final filename = fullPath.split('/').last;
+          // Extract just filename from package path or file path
+          final filename = fullPath.split('/').last.split('\\').last;
+
+          // Skip if this is the logger.dart file itself
+          if (filename == 'logger.dart') {
+            continue;
+          }
 
           return '$filename:$line';
         }
