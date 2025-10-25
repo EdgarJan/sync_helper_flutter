@@ -4,38 +4,40 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 enum LogLevel { debug, info, warn, error }
 
 class Logger {
-  static String _getCallerInfo() {
+  static _CallerInfo? _getCallerInfo() {
     try {
-      final stack = StackTrace.current.toString();
-      final lines = stack.split('\n');
+      final trace = StackTrace.current.toString();
+      final lines = trace.split('\n');
 
-      // Pattern to match stack trace line with file location
-      // Matches both: "(package:app/file.dart:123:45)" and "(file:///path/file.dart:123:45)"
-      final pattern = RegExp(r'\(([^:]+):(\d+):\d+\)');
-
-      // Skip lines until we find a caller that's not from logger.dart itself
+      // Skip the first few lines (this class's methods)
       for (int i = 0; i < lines.length; i++) {
-        final match = pattern.firstMatch(lines[i]);
+        final line = lines[i];
+
+        // Skip lines from this logger class
+        if (line.contains('logger.dart')) continue;
+
+        // Skip Flutter framework lines
+        if (line.contains('package:flutter/')) continue;
+
+        // Parse the line to extract file and line number
+        // Format: #N      method (package:app/file.dart:line:column)
+        final match = RegExp(r'\((.+?):(\d+):\d+\)').firstMatch(line);
         if (match != null) {
-          final fullPath = match.group(1) ?? '';
-          final line = match.group(2) ?? '?';
+          String filePath = match.group(1)!;
+          final lineNumber = match.group(2)!;
 
-          // Extract just filename from package path or file path
-          final filename = fullPath.split('/').last.split('\\').last;
-
-          // Skip if this is the logger.dart file itself
-          if (filename == 'logger.dart') {
-            continue;
+          // Extract just the filename from the path
+          if (filePath.contains('/')) {
+            filePath = filePath.split('/').last;
           }
 
-          return '$filename:$line';
+          return _CallerInfo(filePath, lineNumber);
         }
       }
     } catch (e) {
-      // Silently fail if stack trace parsing fails
+      // Silently fail if we can't get caller info
     }
-
-    return 'unknown';
+    return null;
   }
 
   static String _formatTimestamp() {
@@ -51,12 +53,24 @@ class Logger {
 
   static void _log(LogLevel level, String message, {Map<String, dynamic>? context}) {
     final timestamp = _formatTimestamp();
-    final caller = _getCallerInfo();
+    final callerInfo = _getCallerInfo();
     final contextStr = _formatContext(context);
 
-    final logLine = contextStr.isNotEmpty
-        ? '[$timestamp] [${level.name.toUpperCase()}] [$caller] $message $contextStr'
-        : '[$timestamp] [${level.name.toUpperCase()}] [$caller] $message';
+    final buffer = StringBuffer();
+    buffer.write('[$timestamp] [${level.name.toUpperCase()}] ');
+
+    // Add file and line info if available
+    if (callerInfo != null) {
+      buffer.write('[${callerInfo.file}:${callerInfo.line}] ');
+    }
+
+    buffer.write(message);
+
+    if (contextStr.isNotEmpty) {
+      buffer.write(' $contextStr');
+    }
+
+    final logLine = buffer.toString();
 
     // Send to Sentry
     switch (level) {
@@ -108,4 +122,12 @@ class Logger {
       }
     }
   }
+}
+
+/// Helper class to store caller information
+class _CallerInfo {
+  final String file;
+  final String line;
+
+  _CallerInfo(this.file, this.line);
 }
