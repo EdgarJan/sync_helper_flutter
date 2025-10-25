@@ -503,23 +503,62 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           // Get auth token (Firebase or fallback)
           final authToken = await _getAuthToken();
 
+          // Log detailed request information
+          final requestBody = {
+            'name': table['entity_name'],
+            'data': jsonEncode(rows),
+          };
+          Logger.debug('POST request details', context: {
+            'url': uri.toString(),
+            'tableName': table['entity_name'],
+            'rowCount': rows.length,
+            'firstRowId': rows.isNotEmpty ? rows.first['id'] : 'N/A',
+            'firstRowLts': rows.isNotEmpty ? rows.first['lts'] : 'N/A',
+            'requestBodySize': jsonEncode(requestBody).length,
+          });
+
+          final requestStartTime = DateTime.now();
           final res = await _httpClient.post(
             uri,
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $authToken',
             },
-            body: jsonEncode({
-              'name': table['entity_name'],
-              'data': jsonEncode(rows),
-            }),
+            body: jsonEncode(requestBody),
           );
+          final requestDuration = DateTime.now().difference(requestStartTime).inMilliseconds;
+
+          // Log complete response information
+          Logger.debug('POST response received', context: {
+            'statusCode': res.statusCode,
+            'durationMs': requestDuration,
+            'contentType': res.headers['content-type'],
+            'contentLength': res.headers['content-length'],
+            'responseBody': res.body,
+          });
 
           if (res.statusCode != 200) {
             Logger.warn(
-                'Failed to send unsynced data batch for ${table['entity_name']}, status: ${res.statusCode}');
+                'Failed to send unsynced data batch for ${table['entity_name']}, status: ${res.statusCode}',
+                context: {
+                  'responseBody': res.body,
+                  'statusCode': res.statusCode,
+                });
             retry = true;
             break;
+          }
+
+          // Parse and log response body even on success
+          try {
+            final responseData = jsonDecode(res.body);
+            Logger.debug('POST response parsed', context: {
+              'responseData': responseData,
+            });
+          } catch (e) {
+            Logger.warn('Failed to parse POST response body', context: {
+              'error': e.toString(),
+              'body': res.body,
+            });
           }
           
           // Mark only the successfully sent rows as synced
