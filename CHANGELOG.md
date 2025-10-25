@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.6.0] - 2025-10-25
+
+### Added
+- `isInitialized` getter to check if database is ready without exposing db object
+- Optional `parameters` argument to `getAll()` for parameterized queries
+
+### Changed
+- **BREAKING:** Removed `db` getter - use `isInitialized` and library methods instead
+- Enhanced `getAll()` to support SQL parameter binding for safe queries
+
 ## [1.5.9] - 2025-10-25
 
 ### Fixed

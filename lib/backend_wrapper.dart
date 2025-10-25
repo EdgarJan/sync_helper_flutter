@@ -54,6 +54,7 @@ class BackendNotifier extends ChangeNotifier {
 
   bool get sseConnected => _sseConnected;
   bool get isSyncing => fullSyncStarted;
+  bool get isInitialized => _db != null;
 
   Future<void> _initAndApplyDeviceInfo() async {
     try {
@@ -227,10 +228,11 @@ class BackendNotifier extends ChangeNotifier {
     required String sql,
     String where = '',
     String order = '',
+    List<Object?>? parameters,
   }) {
     final _where = where.isNotEmpty ? ' WHERE $where' : '';
     final _order = order.isNotEmpty ? ' ORDER BY $order' : '';
-    return _db!.getAll(sql + _where + _order);
+    return _db!.getAll(sql + _where + _order, parameters);
   }
 
   Future<void> write({required String tableName, required Map data}) async {
