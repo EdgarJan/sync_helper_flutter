@@ -52,7 +52,6 @@ class BackendNotifier extends ChangeNotifier {
     return firebaseToken;
   }
 
-  SqliteDatabase? get db => _db;
   bool get sseConnected => _sseConnected;
   bool get isSyncing => fullSyncStarted;
 
@@ -235,11 +234,20 @@ class BackendNotifier extends ChangeNotifier {
   }
 
   Future<void> write({required String tableName, required Map data}) async {
-    if (data['id'] == null) {
-      data['id'] = Uuid().v4();
+    // Create a copy of data to avoid modifying caller's map
+    final dataToWrite = Map<String, dynamic>.from(data);
+
+    if (dataToWrite['id'] == null) {
+      dataToWrite['id'] = Uuid().v4();
     }
-    final columns = data.keys.toList();
-    final values = data.values.toList();
+
+    // CRITICAL: Remove 'lts' from data - it's managed exclusively by the server
+    // Allowing client code to set lts causes sync conflicts when stale widget
+    // state overwrites newer lts values received from the server
+    dataToWrite.remove('lts');
+
+    final columns = dataToWrite.keys.toList();
+    final values = dataToWrite.values.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
     final updatePlaceholders = columns.map((c) => '$c = ?').join(', ');
     final sql =

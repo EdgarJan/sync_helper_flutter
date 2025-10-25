@@ -1,11 +1,11 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
-export "FLUTTER_ROOT=/usr/local/Caskroom/flutter/3.32.5/flutter"
-export "FLUTTER_APPLICATION_PATH=/Users/edgarjanvuicik/developer/sync_helper_flutter"
+export "FLUTTER_ROOT=C:\tools\flutter"
+export "FLUTTER_APPLICATION_PATH=C:\Developer\sync_helper_flutter"
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_BUILD_DIR=build"
-export "FLUTTER_BUILD_NAME=1.5.1"
-export "FLUTTER_BUILD_NUMBER=1.5.1"
+export "FLUTTER_BUILD_NAME=1.5.9"
+export "FLUTTER_BUILD_NUMBER=1.5.9"
 export "DART_OBFUSCATION=false"
 export "TRACK_WIDGET_CREATION=true"
 export "TREE_SHAKE_ICONS=false"

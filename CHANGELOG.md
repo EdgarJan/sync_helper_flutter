@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.9] - 2025-10-25
+
+### Fixed
+- **CRITICAL:** Removed public `db` getter to prevent direct database access that could corrupt sync state
+- **CRITICAL:** Fixed `write()` method to never update `lts` column - stale widget state was overwriting server-assigned lts values
+- Prevents permanent sync conflicts caused by rapid successive writes with stale lts values
+
+### Security
+- Database access now strictly controlled through library methods only
+- Applications can no longer directly manipulate sync-critical columns (lts, is_unsynced)
+
 ## [1.5.8] - 2025-10-25
 
 ### Added
