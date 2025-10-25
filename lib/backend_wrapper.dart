@@ -15,6 +15,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sqlite_async/sqlite3.dart';
 import 'package:sqlite_async/sqlite3_common.dart';
 import 'package:sqlite_async/sqlite_async.dart';
+import 'package:sync_helper_flutter/logger.dart';
 import 'package:sync_helper_flutter/sync_abstract.dart';
 import 'package:uuid/uuid.dart';
 
@@ -54,50 +55,6 @@ class BackendNotifier extends ChangeNotifier {
   SqliteDatabase? get db => _db;
   bool get sseConnected => _sseConnected;
   bool get isSyncing => fullSyncStarted;
-
-  // ---------------------------------------------------------------------------
-  // Logging helpers that respect the host application's Sentry setup. Calls are
-  // no-ops when Sentry isn't initialized.
-  // ---------------------------------------------------------------------------
-
-  void _logDebug(String message) {
-    // Using the new Sentry logger API (v9) so that logs show up in the Logs UI
-    // once the application has enabled it.
-    Sentry.logger.debug(message);
-    if (kDebugMode) {
-      // Retain local console output during development for convenience.
-      // ignore: avoid_print
-      print(message);
-    }
-  }
-
-  void _logWarning(String message) {
-    Sentry.logger.warn(message);
-    if (kDebugMode) {
-      // ignore: avoid_print
-      print(message);
-    }
-  }
-
-  void _logError(String message, {Object? error, StackTrace? stackTrace}) {
-    Sentry.logger.error(message);
-    // Forward the throwable so that it appears as an error event as well.
-    if (error != null) {
-      Sentry.captureException(error, stackTrace: stackTrace);
-    }
-    if (kDebugMode) {
-      // ignore: avoid_print
-      print(message);
-      if (error != null) {
-        // ignore: avoid_print
-        print(error);
-      }
-      if (stackTrace != null) {
-        // ignore: avoid_print
-        print(stackTrace);
-      }
-    }
-  }
 
   Future<void> _initAndApplyDeviceInfo() async {
     try {
@@ -176,7 +133,7 @@ class BackendNotifier extends ChangeNotifier {
         }
       });
     } catch (e, stackTrace) {
-      _logError('Failed to set Sentry device info',
+      Logger.error('Failed to set Sentry device info',
           error: e, stackTrace: stackTrace);
     }
   }
@@ -201,9 +158,9 @@ class BackendNotifier extends ChangeNotifier {
       'SELECT last_received_lts FROM syncing_table WHERE entity_name = ?',
       [tableName],
     );
-    
+
     if (existing != null) {
-      _logDebug('Table $tableName already registered with LTS ${existing['last_received_lts']}');
+      Logger.debug('Table $tableName already registered with LTS ${existing['last_received_lts']}');
       return;
     }
     
@@ -224,17 +181,17 @@ class BackendNotifier extends ChangeNotifier {
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           latestLts = data['lts'] as int?;
-          _logDebug('Got latest LTS for $tableName: $latestLts');
+          Logger.debug('Got latest LTS for $tableName: $latestLts');
         } else if (response.statusCode == 403 || response.statusCode == 404) {
           // Table doesn't exist on server yet, use 0
           latestLts = 0;
-          _logDebug('Table $tableName not found on server, using LTS 0');
+          Logger.debug('Table $tableName not found on server, using LTS 0');
         } else {
           throw Exception('Failed to get latest LTS: ${response.statusCode}');
         }
       } catch (e) {
         retries--;
-        _logWarning('Failed to get latest LTS for $tableName, retries left: $retries');
+        Logger.warn('Failed to get latest LTS for $tableName, retries left: $retries');
         if (retries > 0) {
           await Future.delayed(Duration(seconds: 2));
         }
@@ -247,7 +204,7 @@ class BackendNotifier extends ChangeNotifier {
       'INSERT INTO syncing_table (entity_name, last_received_lts) VALUES (?, ?)',
       [tableName, ltsToUse],
     );
-    _logDebug('Registered table $tableName with initial LTS $ltsToUse');
+    Logger.debug('Registered table $tableName with initial LTS $ltsToUse');
   }
 
   Future<void> deinitDb() async {
@@ -312,9 +269,9 @@ class BackendNotifier extends ChangeNotifier {
             'INSERT INTO archive (id, table_name, data, data_id, is_unsynced) VALUES (?, ?, ?, ?, 1)',
             [archiveId, tableName, archiveData, id],
           );
-          _logDebug('Archived row before delete: $tableName/$id as archive/$archiveId');
+          Logger.debug('Archived row before delete: $tableName/$id as archive/$archiveId');
         } else {
-          _logWarning('Delete requested but row not found: $tableName/$id');
+          Logger.warn('Delete requested but row not found: $tableName/$id');
         }
 
         // Perform the actual delete locally
@@ -324,7 +281,7 @@ class BackendNotifier extends ChangeNotifier {
         );
       });
     } catch (e, st) {
-      _logError('Failed to archive+delete $tableName/$id', error: e, stackTrace: st);
+      Logger.error('Failed to archive+delete $tableName/$id', error: e, stackTrace: st);
       rethrow;
     }
     await fullSync();
@@ -402,9 +359,9 @@ class BackendNotifier extends ChangeNotifier {
 
   //todo: sometimes we need to sync only one table, not all
   Future<void> fullSync() async {
-    _logDebug('Starting full sync');
+    Logger.debug('Starting full sync');
     if (fullSyncStarted) {
-      _logDebug('Full sync already started, skipping');
+      Logger.debug('Full sync already started, skipping');
       repeat = true;
       return;
     }
@@ -432,16 +389,16 @@ class BackendNotifier extends ChangeNotifier {
                   repeat = true;
                   return;
                 }
-                _logDebug('Syncing ${table['entity_name']}');
-                _logDebug('Last received LTS: $lts');
-                _logDebug('Received ${resp['data']?.length ?? 0} rows');
+                Logger.debug('Syncing ${table['entity_name']}');
+                Logger.debug('Last received LTS: $lts');
+                Logger.debug('Received ${resp['data']?.length ?? 0} rows');
                 if ((resp['data']?.length ?? 0) == 0) {
                   more = false;
                   return;
                 }
                 final name = table['entity_name'];
                 final data = List<Map<String, dynamic>>.from(resp['data']);
-                _logDebug('Last LTS in response: ${data.last['lts']}');
+                Logger.debug('Last LTS in response: ${data.last['lts']}');
 
                 if (name == 'archive') {
                   // Handle archive messages: delete referenced local rows and clear archive entries locally
@@ -501,7 +458,7 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         }
       }
     } catch (e, stackTrace) {
-      _logError('Error during full sync', error: e, stackTrace: stackTrace);
+      Logger.error('Error during full sync', error: e, stackTrace: stackTrace);
     }
 
     fullSyncStarted = false;
@@ -509,10 +466,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
     if (repeat) {
       repeat = false;
-      _logDebug('Need to repeat full sync');
+      Logger.debug('Need to repeat full sync');
       await fullSync();
     }
-    _logDebug('Full sync completed');
+    Logger.debug('Full sync completed');
   }
 
   Future<void> _sendUnsynced({required ResultSet syncingTables}) async {
@@ -537,14 +494,14 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             hasMoreData = false;
             continue;
           }
-          
+
           final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
               .replace(queryParameters: {'app_id': abstractSyncConstants.appId});  // Include app_id
-          _logDebug('Sending unsynced data batch for ${table['entity_name']}: ${rows.length} rows (offset: $offset)');
-          
+          Logger.debug('Sending unsynced data batch for ${table['entity_name']}: ${rows.length} rows (offset: $offset)');
+
           // Get auth token (Firebase or fallback)
           final authToken = await _getAuthToken();
-          
+
           final res = await _httpClient.post(
             uri,
             headers: {
@@ -556,9 +513,9 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
               'data': jsonEncode(rows),
             }),
           );
-          
+
           if (res.statusCode != 200) {
-            _logWarning(
+            Logger.warn(
                 'Failed to send unsynced data batch for ${table['entity_name']}, status: ${res.statusCode}');
             retry = true;
             break;
@@ -583,12 +540,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 'update ${table['entity_name']} set is_unsynced = 0 where id IN ($idPlaceholders) and is_unsynced = 1',
                 ids,
               );
-              
-              _logDebug(
+
+              Logger.debug(
                 'Batch of ${rows.length} unsynced rows for ${table['entity_name']} sent and marked as synced',
               );
             } else {
-              _logWarning(
+              Logger.warn(
                 'Unsynced data batch for ${table['entity_name']} changed during sending, retrying sync',
               );
               retry = true;
@@ -616,17 +573,18 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
   }
 
   Future<void> _startSyncer() async {
-    _logDebug('Starting SSE syncer');
+    Logger.debug('Starting SSE syncer');
     if (_sseConnected) {
-      _logDebug('SSE syncer already connected, skipping start');
+      Logger.debug('SSE syncer already connected, skipping start');
       return;
     }
     final uri = Uri.parse('${abstractSyncConstants.serverUrl}/events')
         .replace(queryParameters: {'app_id': abstractSyncConstants.appId});  // Include app_id
-    _logDebug('Connecting to SSE at $uri');
+    Logger.debug('Connecting to SSE', context: {'url': uri.toString(), 'appId': abstractSyncConstants.appId});
+
     // Use Sentry-enabled HTTP client
-    void handleError() {
-      _logWarning('SSE connection error, retrying in 5 seconds');
+    void handleError(String reason) {
+      Logger.warn('SSE connection error, retrying in 5 seconds', context: {'reason': reason});
       _sseConnected = false;
       notifyListeners();
       _eventSubscription?.cancel();
@@ -635,43 +593,90 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
     try {
       // Get auth token (Firebase or fallback)
+      Logger.debug('Getting Firebase auth token for SSE');
       final authToken = await _getAuthToken();
-      
+      Logger.debug('Got auth token', context: {'tokenLength': authToken.length});
+
+      Logger.debug('Sending SSE request');
       final request = http.Request('GET', uri)
         ..headers['Accept'] = 'text/event-stream'
         ..headers['Authorization'] = 'Bearer $authToken';
+
+      final requestStartTime = DateTime.now();
       final res = await _httpClient.send(request);
+      final requestDuration = DateTime.now().difference(requestStartTime).inMilliseconds;
+
+      Logger.debug('SSE request completed', context: {
+        'statusCode': res.statusCode,
+        'durationMs': requestDuration,
+        'contentType': res.headers['content-type'],
+      });
+
       if (res.statusCode == 200) {
         _sseConnected = true;
         notifyListeners();
-        _logDebug('SSE connection established');
-        _logDebug('Starting full sync after SSE connection');
+        Logger.debug('SSE connection established successfully', context: {
+          'headers': res.headers.toString(),
+        });
+
+        Logger.debug('Starting full sync after SSE connection');
         await fullSync();
+
+        Logger.debug('Setting up SSE stream listener');
         _eventSubscription = res.stream
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .listen(
               (e) {
-                //todo: performance improvement, maybe we do not need full here
-                _logDebug('SSE event received: $e');
+                final eventTime = DateTime.now().toIso8601String();
+                Logger.debug('SSE event received', context: {
+                  'time': eventTime,
+                  'event': e,
+                  'length': e.length,
+                });
+
                 if (e.startsWith('data:')) {
-                  _logDebug(
-                    'Performing full sync after SSE event starting with "data:"',
-                  );
+                  final data = e.substring(5).trim();
+                  Logger.debug('SSE data event, triggering full sync', context: {
+                    'data': data,
+                  });
                   fullSync();
+                } else if (e.startsWith(': heartbeat')) {
+                  Logger.debug('SSE heartbeat received');
+                } else if (e.isEmpty) {
+                  Logger.debug('SSE empty line (event separator)');
+                } else {
+                  Logger.debug('SSE unknown event format', context: {'event': e});
                 }
               },
-              onError: (e) {
-                _logWarning('SSE error: $e');
-                handleError();
+              onError: (e, st) {
+                Logger.error('SSE stream error', error: e, stackTrace: st, context: {
+                  'errorType': e.runtimeType.toString(),
+                });
+                handleError('Stream error: $e');
               },
+              onDone: () {
+                Logger.warn('SSE stream closed by server', context: {
+                  'wasConnected': _sseConnected,
+                });
+                handleError('Stream closed');
+              },
+              cancelOnError: false,
             );
+        Logger.debug('SSE stream listener configured');
       } else {
-        handleError();
+        Logger.warn('SSE connection failed - non-200 status', context: {
+          'statusCode': res.statusCode,
+          'reasonPhrase': res.reasonPhrase,
+        });
+        handleError('HTTP ${res.statusCode}');
       }
     } catch (e, st) {
-      _logError('Error starting SSE', error: e, stackTrace: st);
-      handleError();
+      Logger.error('Error starting SSE connection', error: e, stackTrace: st, context: {
+        'errorType': e.runtimeType.toString(),
+        'url': uri.toString(),
+      });
+      handleError('Exception: $e');
     }
   }
 }
