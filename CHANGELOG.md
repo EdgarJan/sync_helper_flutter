@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.8] - 2025-10-25
+
+### Added
+- Comprehensive logging for POST /data requests (full request details, body size, LTS values)
+- Complete HTTP response logging (status, headers, body) for debugging server rejections
+- Request duration tracking for performance monitoring
+- Response body parsing even on success to capture server-side rejection information
+
+### Changed
+- Enhanced debug output to help diagnose lts_mismatch sync failures
+- Added correlation timestamps across all sync operations
+
 ## [1.4.2] - 2025-01-06
 
 ### Added
