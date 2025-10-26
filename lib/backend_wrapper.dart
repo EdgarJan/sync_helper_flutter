@@ -558,9 +558,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             break;
           }
 
-          // Parse and log response body even on success
+          // Parse response and handle per-row results
+          Map<String, dynamic> responseData;
           try {
-            final responseData = jsonDecode(res.body);
+            responseData = jsonDecode(res.body);
             Logger.debug('POST response parsed', context: {
               'responseData': responseData,
             });
@@ -569,37 +570,64 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
               'error': e.toString(),
               'body': res.body,
             });
+            retry = true;
+            break;
           }
-          
-          // Mark only the successfully sent rows as synced
+
+          // Process each row result from server
           await db.writeTransaction((tx) async {
             // Verify the same rows still exist and haven't changed
             final rows2 = await tx.getAll(
               'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
             );
-            
-            if (DeepCollectionEquality().equals(rows, rows2)) {
-              // Extract IDs from the sent rows
-              final ids = rows.map((row) => row['id']).toList();
-              final idPlaceholders = List.filled(ids.length, '?').join(', ');
-              
-              // No special handling needed for soft deletes
-              
-              // Mark remaining rows as synced
-              await tx.execute(
-                'update ${table['entity_name']} set is_unsynced = 0 where id IN ($idPlaceholders) and is_unsynced = 1',
-                ids,
-              );
 
-              Logger.debug(
-                'Batch of ${rows.length} unsynced rows for ${table['entity_name']} sent and marked as synced',
-              );
-            } else {
+            if (!DeepCollectionEquality().equals(rows, rows2)) {
               Logger.warn(
                 'Unsynced data batch for ${table['entity_name']} changed during sending, retrying sync',
               );
               retry = true;
+              return;
             }
+
+            // Process server results per row
+            final results = responseData['results'] as List<dynamic>;
+
+            for (final result in results) {
+              final rowId = result['id'] as String;
+              final status = result['status'] as String;
+
+              if (status == 'accepted') {
+                // Server accepted: update lts AND mark as synced
+                final newLts = result['lts'] as int;
+                await tx.execute(
+                  'UPDATE ${table['entity_name']} SET is_unsynced = 0, lts = ? WHERE id = ?',
+                  [newLts, rowId],
+                );
+
+                Logger.debug('Row accepted by server', context: {
+                  'id': rowId,
+                  'newLts': newLts,
+                  'table': table['entity_name'],
+                });
+
+              } else if (status == 'rejected') {
+                // Server rejected: mark as synced (give up on this edit)
+                await tx.execute(
+                  'UPDATE ${table['entity_name']} SET is_unsynced = 0 WHERE id = ?',
+                  [rowId],
+                );
+
+                Logger.warn('Row rejected by server, abandoning edit', context: {
+                  'id': rowId,
+                  'reason': result['reason'],
+                  'table': table['entity_name'],
+                });
+              }
+            }
+
+            Logger.debug(
+              'Batch of ${rows.length} rows processed: server returned ${results.length} results',
+            );
           });
           
           if (retry) {
