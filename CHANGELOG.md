@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0] - 2025-10-26
+
+### Fixed
+- **CRITICAL:** Fixed double-write race condition causing data loss
+- Client now receives and processes per-row server responses with updated lts values
+- Accepted rows immediately update local lts to match server, preventing subsequent conflicts
+- Rejected rows are properly abandoned (server-wins conflict resolution)
+
+### Changed
+- Upload response parsing now handles structured JSON with per-row results
+- Each row result contains: id, status ('accepted'|'rejected'), and lts (for accepted) or reason (for rejected)
+- Requires sync_helper_service v1.x.x with matching response format
+
 ## [1.6.0] - 2025-10-25
 
 ### Added
