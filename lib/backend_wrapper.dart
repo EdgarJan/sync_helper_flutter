@@ -339,6 +339,40 @@ class BackendNotifier extends ChangeNotifier {
     await fullSync();
   }
 
+  /// Execute multiple writes across potentially multiple tables in a single atomic transaction.
+  ///
+  /// The transaction callback receives a [SafeWriteTransaction] object that provides
+  /// a `write()` method. This method automatically:
+  /// - Removes 'lts' field (server-managed)
+  /// - Sets is_unsynced = 1
+  /// - Generates UUID if id is missing
+  ///
+  /// Example:
+  /// ```dart
+  /// await backend.writeTransaction((tx) async {
+  ///   await tx.write('tasks', {'id': taskId, 'priority': 1});
+  ///   await tx.write('tasks', {'id': parentId, 'childCount': 5});
+  /// });
+  /// ```
+  Future<void> writeTransaction(
+    Future<void> Function(SafeWriteTransaction tx) callback,
+  ) async {
+    Logger.debug('Starting write transaction', context: {
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    await _db!.writeTransaction((tx) async {
+      final safeTx = SafeWriteTransaction(tx);
+      await callback(safeTx);
+    });
+
+    Logger.debug('Write transaction completed', context: {
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    await fullSync();
+  }
+
   Future<void> delete({required String tableName, required String id}) async {
     try {
       await _db!.writeTransaction((tx) async {
@@ -890,6 +924,68 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
       });
       handleError('Exception: $e');
     }
+  }
+}
+
+/// Safe wrapper around SqliteWriteContext that prevents modification of sync-critical fields.
+///
+/// This class ensures that:
+/// - 'lts' field is always removed (server-managed)
+/// - 'is_unsynced' is always set to 1 (marks for sync)
+/// - UUIDs are generated for new rows
+class SafeWriteTransaction {
+  final SqliteWriteContext _tx;
+
+  SafeWriteTransaction(this._tx);
+
+  /// Write a row to the specified table with sync-safe guarantees.
+  ///
+  /// Automatically:
+  /// - Removes 'lts' field
+  /// - Sets is_unsynced = 1
+  /// - Generates UUID for 'id' if missing
+  Future<void> write(String tableName, Map<String, dynamic> data) async {
+    final dataToWrite = Map<String, dynamic>.from(data);
+
+    if (dataToWrite['id'] == null) {
+      dataToWrite['id'] = Uuid().v4();
+    }
+
+    // CRITICAL: Remove 'lts' - managed by server only
+    dataToWrite.remove('lts');
+
+    final columns = dataToWrite.keys.toList();
+    final values = dataToWrite.values.toList();
+    final placeholders = List.filled(columns.length, '?').join(', ');
+    final updatePlaceholders = columns.map((c) => '$c = ?').join(', ');
+    final sql = '''
+      INSERT INTO $tableName (${columns.join(', ')}, is_unsynced)
+      VALUES ($placeholders, 1)
+      ON CONFLICT(id) DO UPDATE SET $updatePlaceholders, is_unsynced = 1
+    ''';
+
+    await _tx.execute(sql, [...values, ...values]);
+  }
+
+  /// Execute raw SQL (for reads or custom operations).
+  ///
+  /// WARNING: This bypasses sync-safety checks. Only use for:
+  /// - SELECT queries
+  /// - Complex operations that don't modify syncable data
+  ///
+  /// DO NOT use this to modify 'lts' or 'is_unsynced' fields directly.
+  Future<void> execute(String sql, [List<Object?>? parameters]) async {
+    await _tx.execute(sql, parameters);
+  }
+
+  /// Get a single optional row.
+  Future<Row?> getOptional(String sql, [List<Object?>? parameters]) async {
+    return await _tx.getOptional(sql, parameters);
+  }
+
+  /// Get all matching rows.
+  Future<ResultSet> getAll(String sql, [List<Object?>? parameters]) async {
+    return await _tx.getAll(sql, parameters);
   }
 }
 
