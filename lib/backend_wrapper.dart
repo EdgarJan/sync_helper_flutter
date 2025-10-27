@@ -6,7 +6,7 @@ import 'package:collection/collection.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Row;
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
@@ -975,17 +975,17 @@ class SafeWriteTransaction {
   ///
   /// DO NOT use this to modify 'lts' or 'is_unsynced' fields directly.
   Future<void> execute(String sql, [List<Object?>? parameters]) async {
-    await _tx.execute(sql, parameters);
+    await _tx.execute(sql, parameters ?? []);
   }
 
   /// Get a single optional row.
   Future<Row?> getOptional(String sql, [List<Object?>? parameters]) async {
-    return await _tx.getOptional(sql, parameters);
+    return await _tx.getOptional(sql, parameters ?? []);
   }
 
   /// Get all matching rows.
   Future<ResultSet> getAll(String sql, [List<Object?>? parameters]) async {
-    return await _tx.getAll(sql, parameters);
+    return await _tx.getAll(sql, parameters ?? []);
   }
 }
 
