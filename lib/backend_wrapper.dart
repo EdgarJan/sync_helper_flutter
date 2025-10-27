@@ -292,6 +292,53 @@ class BackendNotifier extends ChangeNotifier {
     await fullSync();
   }
 
+  Future<void> writeBatch({
+    required String tableName,
+    required List<Map<String, dynamic>> dataList,
+  }) async {
+    if (dataList.isEmpty) return;
+
+    Logger.debug('Starting batch write', context: {
+      'table': tableName,
+      'rowCount': dataList.length,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    await _db!.writeTransaction((tx) async {
+      for (final data in dataList) {
+        // Create a copy to avoid modifying caller's map
+        final dataToWrite = Map<String, dynamic>.from(data);
+
+        if (dataToWrite['id'] == null) {
+          dataToWrite['id'] = Uuid().v4();
+        }
+
+        // CRITICAL: Remove 'lts' - managed by server only
+        dataToWrite.remove('lts');
+
+        final columns = dataToWrite.keys.toList();
+        final values = dataToWrite.values.toList();
+        final placeholders = List.filled(columns.length, '?').join(', ');
+        final updatePlaceholders = columns.map((c) => '$c = ?').join(', ');
+        final sql = '''
+          INSERT INTO $tableName (${columns.join(', ')}, is_unsynced)
+          VALUES ($placeholders, 1)
+          ON CONFLICT(id) DO UPDATE SET $updatePlaceholders, is_unsynced = 1
+        ''';
+
+        await tx.execute(sql, [...values, ...values]);
+      }
+    });
+
+    Logger.debug('Batch write completed', context: {
+      'table': tableName,
+      'rowCount': dataList.length,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    await fullSync();
+  }
+
   Future<void> delete({required String tableName, required String id}) async {
     try {
       await _db!.writeTransaction((tx) async {
