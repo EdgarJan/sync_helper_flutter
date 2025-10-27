@@ -5,7 +5,7 @@
 **sync_helper_flutter** is a reusable Flutter package that provides offline-first data synchronization capabilities for Flutter applications. It implements a sophisticated bidirectional sync protocol with SQLite local storage, HTTP REST API communication, and Server-Sent Events for real-time updates.
 
 **Type:** Flutter Package/Library (not an app)
-**Version:** 1.5.3
+**Version:** 1.7.4
 **Repository:** https://github.com/EdgarJan/sync_helper_flutter
 
 **Key Capabilities:**
@@ -143,6 +143,15 @@ class BackendNotifier extends ChangeNotifier {
     required String tableName,
     required Map data,
   });
+
+  Future<void> writeBatch({
+    required String tableName,
+    required List<Map<String, dynamic>> dataList,
+  });
+
+  Future<void> writeTransaction(
+    Future<void> Function(SafeWriteTransaction tx) callback,
+  );
 
   Future<void> delete({
     required String tableName,
@@ -386,6 +395,84 @@ await backend!.write(
 // - Notifies StreamBuilder watchers
 ```
 
+**Batch Writing Data (Multiple Rows, Single Table):**
+```dart
+final backend = BackendWrapper.of(context);
+
+// Efficient batch write for multiple rows in same table
+await backend!.writeBatch(
+  tableName: 'tasks',
+  dataList: [
+    {'id': 'task1', 'name': 'Task 1', 'priority': 0},
+    {'id': 'task2', 'name': 'Task 2', 'priority': 1},
+    {'id': 'task3', 'name': 'Task 3', 'priority': 2},
+  ],
+);
+
+// Benefits:
+// - Single atomic transaction (all-or-nothing)
+// - Single sync cycle (not N syncs)
+// - Much faster for bulk operations
+// - Automatically protects 'lts' and 'is_unsynced' fields
+```
+
+**Transaction Writing (Multiple Tables or Complex Logic):**
+```dart
+final backend = BackendWrapper.of(context);
+
+await backend!.writeTransaction((tx) async {
+  // Write to multiple tables atomically
+  await tx.write('projects', {
+    'id': projectId,
+    'name': 'New Project',
+  });
+
+  await tx.write('tasks', {
+    'id': 'task1',
+    'project_id': projectId,
+    'name': 'First task',
+  });
+
+  await tx.write('tasks', {
+    'id': 'task2',
+    'project_id': projectId,
+    'name': 'Second task',
+  });
+
+  // Can also execute custom SQL within transaction
+  await tx.execute(
+    'UPDATE projects SET task_count = ? WHERE id = ?',
+    [2, projectId],
+  );
+});
+
+// Benefits:
+// - Multi-table atomic writes
+// - Complex operations with queries + writes
+// - Single sync cycle
+// - Automatically protects sync-critical fields
+// - SafeWriteTransaction wrapper prevents 'lts' modification
+```
+
+**When to Use Each Write Method:**
+
+1. **write()** - Single row modification
+   - Simple CRUD operations
+   - User editing one record at a time
+   - Default choice for most operations
+
+2. **writeBatch()** - Multiple rows, same table
+   - Bulk imports
+   - Reordering lists (updating priorities)
+   - Mass updates to same table
+   - Performance-critical batch operations
+
+3. **writeTransaction()** - Multi-table operations or complex logic
+   - Creating related records across tables
+   - Operations requiring reads + writes
+   - Complex business logic requiring atomicity
+   - Custom SQL alongside ORM writes
+
 **Deleting Data:**
 ```dart
 await backend!.delete(
@@ -399,6 +486,64 @@ await backend!.delete(
 // - Syncs archive to server
 // - Server deletes actual row
 ```
+
+---
+
+## Sync Field Protection
+
+### Critical Fields Managed by Sync Library
+
+The sync library automatically manages two critical fields:
+
+1. **`lts` (Logical Timestamp Sequence)**: Server-managed version number
+   - MUST NEVER be set by client code
+   - Always assigned by server
+   - Used for conflict detection and incremental sync
+   - Attempting to set it could break sync protocol
+
+2. **`is_unsynced`**: Client-managed dirty flag
+   - Automatically set to `1` on writes
+   - Cleared to `0` after successful sync
+   - Marks rows needing upload to server
+
+### SafeWriteTransaction API
+
+The `SafeWriteTransaction` wrapper protects these fields in transaction contexts:
+
+```dart
+class SafeWriteTransaction {
+  /// Write a row with automatic sync field protection
+  Future<void> write(String tableName, Map<String, dynamic> data) async {
+    // Automatically strips 'lts' from data
+    // Automatically sets 'is_unsynced = 1'
+    // Generates UUID if 'id' missing
+  }
+
+  /// Execute raw SQL (for custom operations)
+  Future<void> execute(String sql, [List<Object?>? parameters]) async;
+
+  /// Query operations within transaction
+  Future<Row?> getOptional(String sql, [List<Object?>? parameters]) async;
+  Future<ResultSet> getAll(String sql, [List<Object?>? parameters]) async;
+}
+```
+
+**Key Protection Mechanisms:**
+
+1. **Automatic `lts` Removal**: Any `lts` field in data maps is stripped before write
+2. **Automatic `is_unsynced = 1`**: All writes marked as needing sync
+3. **UUID Generation**: Missing `id` fields automatically populated
+4. **UPSERT Logic**: `INSERT...ON CONFLICT DO UPDATE` for idempotent writes
+
+**Why This Matters:**
+
+Without protection, application code could accidentally:
+- Set `lts` field, breaking conflict detection
+- Forget to set `is_unsynced`, losing changes
+- Create inconsistent sync state
+- Corrupt the sync protocol
+
+The wrapper ensures correctness even in complex transaction logic.
 
 ---
 
@@ -609,7 +754,7 @@ dependencies:
 
 | File | Purpose | Lines |
 |------|---------|-------|
-| `lib/backend_wrapper.dart` | Core sync engine & state management | 688 |
+| `lib/backend_wrapper.dart` | Core sync engine & state management | ~990 |
 | `lib/sync_abstract.dart` | Public API contracts | 14 |
 | `bin/sync_generator.dart` | Code generation CLI tool | 331 |
 | `bin/mock_sync_server.dart` | Test server implementation | 227 |
@@ -688,27 +833,7 @@ class _MyWidgetState extends State<MyWidget> {
 
 ## Integration Points
 
-### hard_app Integration
-**Location:** `~/developer/hard_app/`
-
-**Usage:**
-```yaml
-# hard_app/pubspec.yaml
-dependencies:
-  sync_helper_flutter:
-    git: https://github.com/EdgarJan/sync_helper_flutter.git
-    ref: ba4af6e
-```
-
-**Implementation:**
-- Generated `lib/pregenerated.dart` with schema
-- Initializes BackendNotifier in `main.dart`
-- Uses BackendWrapper throughout app
-- All data operations go through BackendNotifier
-
----
-
-### sync_helper_service Integration
+### Server Backend (sync_helper_service)
 **Location:** `~/developer/sync_helper_service/`
 
 **Protocol:**
@@ -725,32 +850,21 @@ dependencies:
 
 ---
 
-### admin_app Integration
-**Location:** `~/developer/admin_app/`
-
-**Relationship:**
-- admin_app manages backend infrastructure
-- Schema changes in admin_app trigger re-generation
-- No direct code dependency
-
----
-
 ## Common Tasks
 
 ### Adding a New Table
 
-**Backend (admin_app):**
-1. Edit `models.json`
-2. Add table definition with columns and rules
-3. Deploy to server: `npm run init`
+**Backend:**
+1. Add table definition to backend schema
+2. Deploy schema changes to server
 
 **Client (this package):**
 1. Regenerate code:
    ```bash
    dart run sync_helper_flutter:sync_generator http://SERVER:8080 APP_ID
    ```
-2. New table automatically available
-3. Use `backend.write(tableName: 'new_table', ...)`
+2. New table automatically available in generated code
+3. Use `backend.write(tableName: 'new_table', ...)` or other write methods
 
 ---
 
@@ -940,11 +1054,9 @@ final results = await db.getAll(
 
 ## Related Documentation
 
-- hard_app: `~/developer/hard_app/CLAUDE.md`
-- sync_helper_service: `~/developer/sync_helper_service/CLAUDE.md`
-- admin_app: `~/developer/admin_app/CLAUDE.md`
+- Server Backend: `~/developer/sync_helper_service/CLAUDE.md`
 - Global Claude instructions: `~/.claude/CLAUDE.md`
 
 ---
 
-**Last Updated:** 2025-10-22
+**Last Updated:** 2025-10-27
