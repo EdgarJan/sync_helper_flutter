@@ -614,47 +614,15 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           }
 
           // Process each row result from server
+          // CRITICAL FIX: Always apply server response, regardless of what else changed in DB.
+          // The batch check was causing false dismissals when concurrent writes happened.
+          // The server is the source of truth for LTS values - we must apply them.
           await db.writeTransaction((tx) async {
             Logger.debug('Starting transaction to process server response', context: {
               'table': table['entity_name'],
-              'originalBatchCount': rows.length,
+              'batchCount': rows.length,
               'transactionStartTime': DateTime.now().toIso8601String(),
             });
-
-            // Verify the same rows still exist and haven't changed
-            final rows2 = await tx.getAll(
-              'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
-            );
-
-            final batchSnapshot2 = rows2.map((r) => {
-              'id': r['id'],
-              'lts': r['lts'],
-              'is_unsynced': r['is_unsynced'],
-            }).toList();
-
-            final batchChanged = !DeepCollectionEquality().equals(rows, rows2);
-
-            Logger.debug('Checked if batch changed during POST', context: {
-              'batchChanged': batchChanged,
-              'originalCount': rows.length,
-              'currentCount': rows2.length,
-              'originalSnapshot': batchSnapshot,
-              'currentSnapshot': batchSnapshot2,
-              'timestamp': DateTime.now().toIso8601String(),
-            });
-
-            if (batchChanged) {
-              Logger.warn(
-                'Unsynced data batch for ${table['entity_name']} changed during sending, retrying sync',
-                context: {
-                  'originalBatch': batchSnapshot,
-                  'currentBatch': batchSnapshot2,
-                  'serverResponseProcessed': false,
-                },
-              );
-              retry = true;
-              return;
-            }
 
             // Process server results per row
             final results = responseData['results'] as List<dynamic>;
