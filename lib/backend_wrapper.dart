@@ -248,6 +248,21 @@ class BackendNotifier extends ChangeNotifier {
     // state overwrites newer lts values received from the server
     dataToWrite.remove('lts');
 
+    // Read current row state before write
+    final currentRow = await _db!.getOptional(
+      'SELECT lts, is_unsynced FROM $tableName WHERE id = ?',
+      [dataToWrite['id']],
+    );
+
+    Logger.debug('Writing to local DB', context: {
+      'table': tableName,
+      'id': dataToWrite['id'],
+      'currentLts': currentRow?['lts'],
+      'currentIsUnsynced': currentRow?['is_unsynced'],
+      'isNewRow': currentRow == null,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
     final columns = dataToWrite.keys.toList();
     final values = dataToWrite.values.toList();
     final placeholders = List.filled(columns.length, '?').join(', ');
@@ -259,6 +274,21 @@ class BackendNotifier extends ChangeNotifier {
       ON CONFLICT(id) DO UPDATE SET $updatePlaceholders, is_unsynced = 1
     ''';
     await _db!.execute(sql, [...values, ...values]);
+
+    // Verify write completed
+    final updatedRow = await _db!.getOptional(
+      'SELECT lts, is_unsynced FROM $tableName WHERE id = ?',
+      [dataToWrite['id']],
+    );
+
+    Logger.debug('Local DB write completed', context: {
+      'table': tableName,
+      'id': dataToWrite['id'],
+      'newLts': updatedRow?['lts'],
+      'newIsUnsynced': updatedRow?['is_unsynced'],
+      'ltsChanged': currentRow?['lts'] != updatedRow?['lts'],
+    });
+
     await fullSync();
   }
 
@@ -500,11 +530,18 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
           final rows = await db.getAll(
             'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
           );
-          
+
           if (rows.isEmpty) {
             hasMoreData = false;
             continue;
           }
+
+          // Log complete batch state before sending
+          final batchSnapshot = rows.map((r) => {
+            'id': r['id'],
+            'lts': r['lts'],
+            'is_unsynced': r['is_unsynced'],
+          }).toList();
 
           final uri = Uri.parse('${abstractSyncConstants.serverUrl}/data')
               .replace(queryParameters: {'app_id': abstractSyncConstants.appId});  // Include app_id
@@ -525,6 +562,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             'firstRowId': rows.isNotEmpty ? rows.first['id'] : 'N/A',
             'firstRowLts': rows.isNotEmpty ? rows.first['lts'] : 'N/A',
             'requestBodySize': jsonEncode(requestBody).length,
+            'batchSnapshot': batchSnapshot,
+            'timestamp': DateTime.now().toIso8601String(),
           });
 
           final requestStartTime = DateTime.now();
@@ -576,14 +615,42 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
           // Process each row result from server
           await db.writeTransaction((tx) async {
+            Logger.debug('Starting transaction to process server response', context: {
+              'table': table['entity_name'],
+              'originalBatchCount': rows.length,
+              'transactionStartTime': DateTime.now().toIso8601String(),
+            });
+
             // Verify the same rows still exist and haven't changed
             final rows2 = await tx.getAll(
               'select ${abstractMetaEntity.syncableColumnsString[table['entity_name']]} from ${table['entity_name']} where is_unsynced = 1 LIMIT $batchSize OFFSET $offset',
             );
 
-            if (!DeepCollectionEquality().equals(rows, rows2)) {
+            final batchSnapshot2 = rows2.map((r) => {
+              'id': r['id'],
+              'lts': r['lts'],
+              'is_unsynced': r['is_unsynced'],
+            }).toList();
+
+            final batchChanged = !DeepCollectionEquality().equals(rows, rows2);
+
+            Logger.debug('Checked if batch changed during POST', context: {
+              'batchChanged': batchChanged,
+              'originalCount': rows.length,
+              'currentCount': rows2.length,
+              'originalSnapshot': batchSnapshot,
+              'currentSnapshot': batchSnapshot2,
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+
+            if (batchChanged) {
               Logger.warn(
                 'Unsynced data batch for ${table['entity_name']} changed during sending, retrying sync',
+                context: {
+                  'originalBatch': batchSnapshot,
+                  'currentBatch': batchSnapshot2,
+                  'serverResponseProcessed': false,
+                },
               );
               retry = true;
               return;
@@ -592,26 +659,66 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
             // Process server results per row
             final results = responseData['results'] as List<dynamic>;
 
+            Logger.debug('Processing server results', context: {
+              'resultCount': results.length,
+              'rowCount': rows.length,
+            });
+
             for (final result in results) {
               final rowId = result['id'] as String;
               final status = result['status'] as String;
 
+              // Read current state before update
+              final currentState = await tx.getOptional(
+                'SELECT lts, is_unsynced FROM ${table['entity_name']} WHERE id = ?',
+                [rowId],
+              );
+
               if (status == 'accepted') {
                 // Server accepted: update lts AND mark as synced
                 final newLts = result['lts'] as int;
+
+                Logger.debug('Applying accepted row update', context: {
+                  'id': rowId,
+                  'table': table['entity_name'],
+                  'oldLts': currentState?['lts'],
+                  'newLts': newLts,
+                  'oldIsUnsynced': currentState?['is_unsynced'],
+                  'newIsUnsynced': 0,
+                  'timestampBeforeUpdate': DateTime.now().toIso8601String(),
+                });
+
                 await tx.execute(
                   'UPDATE ${table['entity_name']} SET is_unsynced = 0, lts = ? WHERE id = ?',
                   [newLts, rowId],
                 );
 
-                Logger.debug('Row accepted by server', context: {
+                // Verify update applied
+                final verifyState = await tx.getOptional(
+                  'SELECT lts, is_unsynced FROM ${table['entity_name']} WHERE id = ?',
+                  [rowId],
+                );
+
+                Logger.debug('Row accepted by server - update applied', context: {
                   'id': rowId,
                   'newLts': newLts,
                   'table': table['entity_name'],
+                  'verifiedLts': verifyState?['lts'],
+                  'verifiedIsUnsynced': verifyState?['is_unsynced'],
+                  'updateSuccessful': verifyState?['lts'] == newLts && verifyState?['is_unsynced'] == 0,
+                  'timestampAfterUpdate': DateTime.now().toIso8601String(),
                 });
 
               } else if (status == 'rejected') {
                 // Server rejected: mark as synced (give up on this edit)
+                Logger.debug('Applying rejected row update', context: {
+                  'id': rowId,
+                  'table': table['entity_name'],
+                  'oldLts': currentState?['lts'],
+                  'reason': result['reason'],
+                  'timestampBeforeUpdate': DateTime.now().toIso8601String(),
+                });
+
                 await tx.execute(
                   'UPDATE ${table['entity_name']} SET is_unsynced = 0 WHERE id = ?',
                   [rowId],
@@ -621,13 +728,25 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                   'id': rowId,
                   'reason': result['reason'],
                   'table': table['entity_name'],
+                  'oldLts': currentState?['lts'],
+                  'timestampAfterUpdate': DateTime.now().toIso8601String(),
                 });
               }
             }
 
             Logger.debug(
-              'Batch of ${rows.length} rows processed: server returned ${results.length} results',
+              'Batch processing completed in transaction',
+              context: {
+                'rowsProcessed': rows.length,
+                'resultsReturned': results.length,
+                'transactionEndTime': DateTime.now().toIso8601String(),
+              },
             );
+          });
+
+          Logger.debug('Transaction committed', context: {
+            'table': table['entity_name'],
+            'timestamp': DateTime.now().toIso8601String(),
           });
           
           if (retry) {
