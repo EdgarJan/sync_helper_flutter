@@ -165,6 +165,9 @@ class BackendNotifier extends ChangeNotifier {
   SqliteDatabase? get db;
   bool get sseConnected;
   bool get isSyncing;
+  bool get isInitialized;
+  bool get initialSyncCompleted;
+  String? get syncError;
   String? get userId;
 }
 ```
@@ -773,14 +776,17 @@ class BackendNotifier extends ChangeNotifier {
   String? userId;
 
   // Sync Status
-  bool fullSyncStarted = false;   // Currently syncing?
-  bool repeat = false;            // Re-sync after current?
-  bool _sseConnected = false;     // SSE connected?
+  bool fullSyncStarted = false;        // Currently syncing?
+  bool repeat = false;                  // Re-sync after current?
+  bool _sseConnected = false;          // SSE connected?
+  bool _initialSyncCompleted = false;  // First sync after init completed?
 
   // Connections
   StreamSubscription? _eventSubscription;  // SSE listener
 }
 ```
+
+**Important:** `initialSyncCompleted` becomes `true` only after the first `fullSync()` completes following SSE connection. Use this to wait before writing data that may conflict with server state (e.g., app version records).
 
 ### When notifyListeners() Called
 
@@ -788,7 +794,8 @@ class BackendNotifier extends ChangeNotifier {
 2. SSE connected/disconnected: Connection state changes
 3. Sync started: `fullSyncStarted = true`
 4. Sync completed: `fullSyncStarted = false`
-5. Data changed: After write/delete operations
+5. Initial sync completed: `_initialSyncCompleted = true` (first sync after connect)
+6. Data changed: After write/delete operations
 
 ### Listening Pattern
 

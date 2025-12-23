@@ -26,6 +26,7 @@ class BackendNotifier extends ChangeNotifier {
 
   SqliteDatabase? _db;
   bool _sseConnected = false;
+  bool _initialSyncCompleted = false;
   StreamSubscription? _eventSubscription;
   String? userId;
   String? _syncError;
@@ -56,6 +57,7 @@ class BackendNotifier extends ChangeNotifier {
   bool get sseConnected => _sseConnected;
   bool get isSyncing => fullSyncStarted;
   bool get isInitialized => _db != null;
+  bool get initialSyncCompleted => _initialSyncCompleted;
   String? get syncError => _syncError;
 
   void _setSyncError(String? error) {
@@ -147,6 +149,7 @@ class BackendNotifier extends ChangeNotifier {
 
   Future<void> initDb({required String userId}) async {
     this.userId = userId;
+    _initialSyncCompleted = false;
     await _initAndApplyDeviceInfo();
     final tempDb = await _openDatabase();
     await abstractPregeneratedMigrations.migrations.migrate(tempDb);
@@ -218,6 +221,7 @@ class BackendNotifier extends ChangeNotifier {
     await _eventSubscription?.cancel();
     _eventSubscription = null;
     _sseConnected = false;
+    _initialSyncCompleted = false;
     if (_db != null) await _db!.close();
     _db = null;
     // Note: we intentionally keep the HTTP client alive for the lifetime of
@@ -975,6 +979,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
 
         Logger.debug('Starting full sync after SSE connection');
         await fullSync();
+
+        if (!_initialSyncCompleted) {
+          _initialSyncCompleted = true;
+          Logger.debug('Initial sync completed');
+          notifyListeners();
+        }
 
         Logger.debug('Setting up SSE stream listener');
         _eventSubscription = res.stream
