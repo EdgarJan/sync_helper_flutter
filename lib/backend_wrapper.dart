@@ -28,6 +28,7 @@ class BackendNotifier extends ChangeNotifier {
   bool _sseConnected = false;
   StreamSubscription? _eventSubscription;
   String? userId;
+  String? _syncError;
 
   BackendNotifier({
     required this.abstractPregeneratedMigrations,
@@ -55,6 +56,12 @@ class BackendNotifier extends ChangeNotifier {
   bool get sseConnected => _sseConnected;
   bool get isSyncing => fullSyncStarted;
   bool get isInitialized => _db != null;
+  String? get syncError => _syncError;
+
+  void _setSyncError(String? error) {
+    _syncError = error;
+    notifyListeners();
+  }
 
   Future<void> _initAndApplyDeviceInfo() async {
     try {
@@ -218,6 +225,43 @@ class BackendNotifier extends ChangeNotifier {
     // during app shutdown, in which case the process exits and sockets are
     // cleaned up automatically.
     notifyListeners();
+  }
+
+  /// Completely wipes the local database and recreates it fresh.
+  /// This will trigger a full re-sync from the server.
+  /// Use this when local data is corrupted or LTS values exceed server's.
+  Future<void> recreateDatabase() async {
+    if (userId == null) {
+      throw Exception('Cannot recreate database: no user logged in');
+    }
+
+    final savedUserId = userId!;
+
+    // 1. Close everything
+    await deinitDb();
+
+    // 2. Delete the database file
+    final dbPath = await _getDatabasePath('$savedUserId/helper_sync.db');
+
+    final dbFile = File(dbPath);
+    if (await dbFile.exists()) {
+      await dbFile.delete();
+      Logger.info('Deleted database file', context: {'path': dbPath});
+    }
+
+    // Also delete WAL and SHM files if they exist (SQLite journal files)
+    final walFile = File('$dbPath-wal');
+    final shmFile = File('$dbPath-shm');
+    if (await walFile.exists()) await walFile.delete();
+    if (await shmFile.exists()) await shmFile.delete();
+
+    // 3. Clear error state
+    _setSyncError(null);
+
+    // 4. Reinitialize with fresh database
+    await initDb(userId: savedUserId);
+
+    Logger.info('Database recreated successfully');
   }
 
   Stream<List> watch(String sql, {List<String>? triggerOnTables}) {
@@ -818,6 +862,66 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
     } while (retry);
   }
 
+  /// Validates that local LTS values don't exceed server's sequence.
+  /// Returns true if valid, false if mismatch detected.
+  /// Called on SSE connect/reconnect to detect database restore scenarios.
+  Future<bool> _validateLtsOnConnect() async {
+    if (_db == null) return true;
+
+    try {
+      final token = await _getAuthToken();
+      final response = await _httpClient.get(
+        Uri.parse('${abstractSyncConstants.serverUrl}/max-sequence-lts'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+
+      if (response.statusCode != 200) {
+        Logger.warn('Failed to get server max LTS', context: {'status': response.statusCode});
+        return true; // Don't block on network errors
+      }
+
+      final serverMaxLts = jsonDecode(response.body)['lts'] as int? ?? 0;
+
+      // Get max LTS from local syncing_table
+      final localResult = await _db!.getOptional(
+        'SELECT MAX(last_received_lts) as max_lts FROM syncing_table'
+      );
+      final localMaxLts = localResult?['max_lts'] as int? ?? 0;
+
+      // Also check max LTS in actual data tables
+      final tables = await _db!.getAll('SELECT entity_name FROM syncing_table');
+      int maxDataLts = 0;
+      for (final table in tables) {
+        final tableName = table['entity_name'] as String;
+        if (tableName == 'syncing_table') continue;
+        try {
+          final result = await _db!.getOptional('SELECT MAX(lts) as max_lts FROM "$tableName"');
+          final tableLts = result?['max_lts'] as int? ?? 0;
+          if (tableLts > maxDataLts) maxDataLts = tableLts;
+        } catch (_) {
+          // Table might not exist yet, skip
+        }
+      }
+
+      final clientMaxLts = localMaxLts > maxDataLts ? localMaxLts : maxDataLts;
+
+      if (clientMaxLts > serverMaxLts) {
+        Logger.warn('Client LTS exceeds server', context: {
+          'clientMaxLts': clientMaxLts,
+          'serverMaxLts': serverMaxLts,
+        });
+        _setSyncError('Local data is ahead of server (LTS: $clientMaxLts > $serverMaxLts). Database may need reset.');
+        return false;
+      }
+
+      _setSyncError(null); // Clear any previous error
+      return true;
+    } catch (e, st) {
+      Logger.error('LTS validation failed', error: e, stackTrace: st);
+      return true; // Don't block on errors
+    }
+  }
+
   Future<void> _startSyncer() async {
     Logger.debug('Starting SSE syncer');
     if (_sseConnected) {
@@ -864,6 +968,10 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         Logger.debug('SSE connection established successfully', context: {
           'headers': res.headers.toString(),
         });
+
+        // Validate local LTS against server before syncing
+        Logger.debug('Validating LTS on connect');
+        await _validateLtsOnConnect();
 
         Logger.debug('Starting full sync after SSE connection');
         await fullSync();
