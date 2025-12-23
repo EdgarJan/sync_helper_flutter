@@ -884,7 +884,8 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
         return true; // Don't block on network errors
       }
 
-      final serverMaxLts = jsonDecode(response.body)['lts'] as int? ?? 0;
+      final ltsValue = jsonDecode(response.body)['lts'];
+      final serverMaxLts = ltsValue is int ? ltsValue : int.tryParse(ltsValue.toString()) ?? 0;
 
       // Get max LTS from local syncing_table
       final localResult = await _db!.getOptional(
