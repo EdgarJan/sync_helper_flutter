@@ -182,7 +182,7 @@ class BackendNotifier extends ChangeNotifier {
       try {
         final token = await _getAuthToken();
         final response = await _httpClient.get(
-          Uri.parse('${abstractSyncConstants.serverUrl}/latest-lts?name=$tableName'),
+          Uri.parse('${abstractSyncConstants.serverUrl}/latest-lts?name=$tableName&app_id=${abstractSyncConstants.appId}'),
           headers: {
             'Authorization': 'Bearer $token',
           },
