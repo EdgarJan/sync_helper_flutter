@@ -776,10 +776,13 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 final newLts = result['lts'] as int;
 
                 // Find the row we sent in the batch
-                final sentRow = rows.firstWhere(
-                  (r) => r['id'] == rowId,
-                  orElse: () => <String, dynamic>{},
-                );
+                dynamic sentRow;
+                for (final r in rows) {
+                  if (r['id'] == rowId) {
+                    sentRow = r;
+                    break;
+                  }
+                }
 
                 // Get current row from DB to compare
                 final currentRow = await tx.getOptional(
@@ -795,10 +798,12 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                     .toList();
 
                 bool dataChanged = false;
-                for (final col in dataColumns) {
-                  if (sentRow[col]?.toString() != currentRow?[col]?.toString()) {
-                    dataChanged = true;
-                    break;
+                if (sentRow != null && currentRow != null) {
+                  for (final col in dataColumns) {
+                    if (sentRow[col]?.toString() != currentRow[col]?.toString()) {
+                      dataChanged = true;
+                      break;
+                    }
                   }
                 }
 
