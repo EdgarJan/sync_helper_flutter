@@ -775,36 +775,79 @@ ON CONFLICT($pk) DO UPDATE SET $updates;
                 // Server accepted: update lts AND mark as synced
                 final newLts = result['lts'] as int;
 
-                Logger.debug('Applying accepted row update', context: {
-                  'id': rowId,
-                  'table': table['entity_name'],
-                  'oldLts': currentState?['lts'],
-                  'newLts': newLts,
-                  'oldIsUnsynced': currentState?['is_unsynced'],
-                  'newIsUnsynced': 0,
-                  'timestampBeforeUpdate': DateTime.now().toIso8601String(),
-                });
-
-                await tx.execute(
-                  'UPDATE ${table['entity_name']} SET is_unsynced = 0, lts = ? WHERE id = ?',
-                  [newLts, rowId],
+                // Find the row we sent in the batch
+                final sentRow = rows.firstWhere(
+                  (r) => r['id'] == rowId,
+                  orElse: () => <String, dynamic>{},
                 );
 
-                // Verify update applied
-                final verifyState = await tx.getOptional(
-                  'SELECT lts, is_unsynced FROM ${table['entity_name']} WHERE id = ?',
+                // Get current row from DB to compare
+                final currentRow = await tx.getOptional(
+                  'SELECT * FROM ${table['entity_name']} WHERE id = ?',
                   [rowId],
                 );
 
-                Logger.debug('Row accepted by server - update applied', context: {
-                  'id': rowId,
-                  'newLts': newLts,
-                  'table': table['entity_name'],
-                  'verifiedLts': verifyState?['lts'],
-                  'verifiedIsUnsynced': verifyState?['is_unsynced'],
-                  'updateSuccessful': verifyState?['lts'] == newLts && verifyState?['is_unsynced'] == 0,
-                  'timestampAfterUpdate': DateTime.now().toIso8601String(),
-                });
+                // Compare data columns (exclude is_unsynced, lts, id)
+                final dataColumns = abstractMetaEntity
+                    .syncableColumnsList[table['entity_name']]!
+                    .where((col) =>
+                        col != 'is_unsynced' && col != 'lts' && col != 'id')
+                    .toList();
+
+                bool dataChanged = false;
+                for (final col in dataColumns) {
+                  if (sentRow[col]?.toString() != currentRow?[col]?.toString()) {
+                    dataChanged = true;
+                    break;
+                  }
+                }
+
+                if (dataChanged) {
+                  // Data changed since batch was sent - keep is_unsynced=1, only update lts
+                  Logger.debug('Data changed since batch was sent, keeping is_unsynced=1', context: {
+                    'id': rowId,
+                    'table': table['entity_name'],
+                    'oldLts': currentState?['lts'],
+                    'newLts': newLts,
+                  });
+
+                  await tx.execute(
+                    'UPDATE ${table['entity_name']} SET lts = ? WHERE id = ?',
+                    [newLts, rowId],
+                  );
+                } else {
+                  // Data unchanged - safe to mark as synced
+                  Logger.debug('Applying accepted row update', context: {
+                    'id': rowId,
+                    'table': table['entity_name'],
+                    'oldLts': currentState?['lts'],
+                    'newLts': newLts,
+                    'oldIsUnsynced': currentState?['is_unsynced'],
+                    'newIsUnsynced': 0,
+                    'timestampBeforeUpdate': DateTime.now().toIso8601String(),
+                  });
+
+                  await tx.execute(
+                    'UPDATE ${table['entity_name']} SET is_unsynced = 0, lts = ? WHERE id = ?',
+                    [newLts, rowId],
+                  );
+
+                  // Verify update applied
+                  final verifyState = await tx.getOptional(
+                    'SELECT lts, is_unsynced FROM ${table['entity_name']} WHERE id = ?',
+                    [rowId],
+                  );
+
+                  Logger.debug('Row accepted by server - update applied', context: {
+                    'id': rowId,
+                    'newLts': newLts,
+                    'table': table['entity_name'],
+                    'verifiedLts': verifyState?['lts'],
+                    'verifiedIsUnsynced': verifyState?['is_unsynced'],
+                    'updateSuccessful': verifyState?['lts'] == newLts && verifyState?['is_unsynced'] == 0,
+                    'timestampAfterUpdate': DateTime.now().toIso8601String(),
+                  });
+                }
 
               } else if (status == 'rejected') {
                 // Server rejected: mark as synced (give up on this edit)
